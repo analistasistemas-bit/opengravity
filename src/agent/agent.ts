@@ -76,11 +76,15 @@ export function parseToolCallFromText(content: string | null | undefined): Parse
         // Fall through to the pseudo-XML parser.
     }
 
-    if (!trimmed.startsWith('<function=') || !trimmed.endsWith('</function>')) {
+    const functionStart = trimmed.indexOf('<function=');
+    const functionEnd = trimmed.indexOf('</function>');
+    if (functionStart === -1 || functionEnd === -1 || functionEnd <= functionStart) {
         return null;
     }
 
-    const rawBody = trimmed.slice('<function='.length, -'</function>'.length).trim();
+    const rawBody = trimmed
+        .slice(functionStart + '<function='.length, functionEnd)
+        .trim();
     const bodyStartIndex = rawBody.indexOf('{');
     if (bodyStartIndex === -1) {
         return null;

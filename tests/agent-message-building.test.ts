@@ -61,3 +61,17 @@ test('parseToolCallFromText extracts a function call from pseudo-xml body format
         },
     });
 });
+
+test('parseToolCallFromText extracts a function call when prose appears before the pseudo-xml payload', () => {
+    const parsed = parseToolCallFromText(
+        `Oi! Vou verificar novamente!\n<function=gmail_search>{"query":"in:inbox newer:1d","limit":"10"}</function>`
+    );
+
+    assert.deepEqual(parsed, {
+        name: 'gmail_search',
+        arguments: {
+            query: 'in:inbox newer:1d',
+            limit: 10,
+        },
+    });
+});
