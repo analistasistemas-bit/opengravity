@@ -3,6 +3,14 @@ import { config } from '../config.js';
 import { Memory, ChatMessage } from './memory.js';
 import { tools, toolHandlers } from '../tools/index.js';
 
+export function formatToolResultContent(result: unknown): string {
+    if (typeof result === 'string') {
+        return result;
+    }
+
+    return JSON.stringify(result, null, 2);
+}
+
 export class Agent {
     private groq: Groq;
     private memory: Memory;
@@ -23,7 +31,7 @@ export class Agent {
         while (iterations < maxIterations) {
             const history = await this.memory.getHistory(userId);
             const messages = [
-                { role: 'system', content: 'Você é o OpenGravity, um assistente de IA pessoal e inteligente. REGRA ABSOLUTA: você SEMPRE responde em texto normalmente — o sistema converte automaticamente seu texto em áudio para o usuário ouvir. NUNCA diga que não pode falar ou produzir áudio. Quando o usuário pedir uma resposta em áudio ou voz, simplesmente responda em texto como faria normalmente — o sistema fará a conversão. Você tem acesso a ferramentas para ajudar o usuário.' },
+                { role: 'system', content: 'Você é o OpenGravity, um assistente de IA pessoal e inteligente. REGRA ABSOLUTA: você SEMPRE responde em texto normalmente — o sistema converte automaticamente seu texto em áudio para o usuário ouvir. NUNCA diga que não pode falar ou produzir áudio. Quando o usuário pedir uma resposta em áudio ou voz, simplesmente responda em texto como faria normalmente — o sistema fará a conversão. Você tem acesso a ferramentas para ajudar o usuário. Quando usar resultados do Gmail, responda objetivamente com remetente e assunto dos e-mails encontrados. Se houver data disponível, você pode incluí-la. Não diga que não pode exibir os resultados se a ferramenta já retornou os dados.' },
                 ...history.map(m => ({
                     role: m.role,
                     content: m.content,
@@ -80,7 +88,7 @@ export class Agent {
                     await this.memory.addMessage({
                         user_id: userId,
                         role: 'tool',
-                        content: String(result),
+                        content: formatToolResultContent(result),
                         name: toolCall.function.name,
                         tool_call_id: toolCall.id
                     });

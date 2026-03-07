@@ -1,6 +1,13 @@
 import { execSync } from 'child_process';
 
 type GogEnvironment = NodeJS.ProcessEnv;
+type GogRecord = Record<string, unknown>;
+type GmailSearchEmail = {
+    id?: string;
+    from: string;
+    subject: string;
+    date?: string;
+};
 
 function quoteShellValue(value: string): string {
     return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
@@ -31,6 +38,56 @@ export function buildGogExecOptions(env: GogEnvironment = process.env) {
             ...env,
             PATH: pathSegments.join(':'),
         },
+    };
+}
+
+function asRecord(value: unknown): GogRecord | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as GogRecord
+        : null;
+}
+
+function asString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function normalizeGmailSearchEmail(entry: unknown): GmailSearchEmail | null {
+    const record = asRecord(entry);
+    if (!record) {
+        return null;
+    }
+
+    const from = asString(record.from) ?? asString(record.sender) ?? asString(record.author);
+    const subject = asString(record.subject) ?? asString(record.snippet) ?? '(sem assunto)';
+    const date = asString(record.date) ?? asString(record.internalDate) ?? asString(record.receivedAt);
+    const id = asString(record.id) ?? asString(record.threadId);
+
+    if (!from) {
+        return null;
+    }
+
+    return { id, from, subject, date };
+}
+
+export function normalizeGmailSearchResult(rawResult: unknown) {
+    const rootRecord = asRecord(rawResult);
+    const rawItems = Array.isArray(rawResult)
+        ? rawResult
+        : Array.isArray(rootRecord?.emails)
+            ? rootRecord.emails
+            : Array.isArray(rootRecord?.results)
+                ? rootRecord.results
+                : Array.isArray(rootRecord?.messages)
+                    ? rootRecord.messages
+                    : [];
+
+    const emails = rawItems
+        .map(normalizeGmailSearchEmail)
+        .filter((email): email is GmailSearchEmail => email !== null);
+
+    return {
+        count: emails.length,
+        emails,
     };
 }
 
@@ -115,7 +172,7 @@ export const googleWorkspaceTools = [
 
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
-        return runGogCommand(`gmail search "${query}" --limit ${limit}`);
+        return normalizeGmailSearchResult(runGogCommand(`gmail search "${query}" --limit ${limit}`));
     },
     gmail_send: async ({ to, subject, body }: { to: string, subject: string, body: string }) => {
         return runGogCommand(`gmail send --to "${to}" --subject "${subject}" --body "${body}"`);
