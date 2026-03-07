@@ -89,16 +89,6 @@ bot.on('message:text', async (ctx) => {
         console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
         await ctx.reply(response);
 
-        // Resposta por voz (Sempre tenta, Edge TTS é gratuito)
-        try {
-            await ctx.replyWithChatAction('record_voice');
-            const audioPath = await TTSService.generateSpeech(response);
-            await ctx.replyWithVoice(new InputFile(audioPath));
-            await TTSService.cleanup(audioPath);
-        } catch (ttsError) {
-            console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
-        }
-
         console.log(`✅ Mensagem enviada para o usuário.`);
     } catch (error) {
         console.error("❌ Erro ao processar mensagem:", error);
