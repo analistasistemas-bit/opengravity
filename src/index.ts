@@ -1,9 +1,10 @@
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 import nodeFetch from 'node-fetch';
 import https from 'https';
 import { config } from './config.js';
 import { Agent } from './agent/agent.js';
 import { AudioService } from './agent/audio_service.js';
+import { TTSService } from './agent/tts_service.js';
 
 // Força uso de IPv4 para evitar ETIMEDOUT causado por roteamento IPv6 no macOS
 const httpsAgent = new https.Agent({ family: 4 });
@@ -56,6 +57,18 @@ bot.on('message:voice', async (ctx) => {
 
         const response = await agent.handleMessage(userId, text);
         await ctx.reply(response);
+
+        // Resposta por voz (Opcional, se a chave existir)
+        if (config.ELEVENLABS_API_KEY) {
+            try {
+                await ctx.replyWithChatAction('record_voice');
+                const audioPath = await TTSService.generateSpeech(response);
+                await ctx.replyWithVoice(new InputFile(audioPath));
+                await TTSService.cleanup(audioPath);
+            } catch (ttsError) {
+                console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
+            }
+        }
     } catch (error) {
         console.error("❌ Erro ao processar áudio:", error);
         await bot.api.editMessageText(ctx.chat.id, msg.message_id, "❌ Desculpe, não consegui entender o áudio.");
@@ -77,6 +90,19 @@ bot.on('message:text', async (ctx) => {
         const response = await agent.handleMessage(userId, text);
         console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
         await ctx.reply(response);
+
+        // Resposta por voz (Opcional, se a chave existir)
+        if (config.ELEVENLABS_API_KEY) {
+            try {
+                await ctx.replyWithChatAction('record_voice');
+                const audioPath = await TTSService.generateSpeech(response);
+                await ctx.replyWithVoice(new InputFile(audioPath));
+                await TTSService.cleanup(audioPath);
+            } catch (ttsError) {
+                console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
+            }
+        }
+
         console.log(`✅ Mensagem enviada para o usuário.`);
     } catch (error) {
         console.error("❌ Erro ao processar mensagem:", error);
