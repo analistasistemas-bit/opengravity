@@ -3,6 +3,7 @@ import nodeFetch from 'node-fetch';
 import https from 'https';
 import { config } from './config.js';
 import { Agent } from './agent/agent.js';
+import { AudioService } from './agent/audio_service.js';
 
 // Força uso de IPv4 para evitar ETIMEDOUT causado por roteamento IPv6 no macOS
 const httpsAgent = new https.Agent({ family: 4 });
@@ -35,6 +36,30 @@ bot.use(async (ctx, next) => {
 
     console.warn(`⚠️ Acesso NEGADO para ID: ${userId}`);
     await ctx.reply("Acesso não autorizado. Por favor, configure seu ID no arquivo .env.");
+});
+
+// Handler de Áudio
+bot.on('message:voice', async (ctx) => {
+    const userId = ctx.from.id;
+    const fileId = ctx.message.voice.file_id;
+    console.log(`🎤 Áudio recebido de ${userId}. FileID: ${fileId}`);
+
+    await ctx.replyWithChatAction('typing');
+    const msg = await ctx.reply("👂 Estou ouvindo...");
+
+    try {
+        const text = await AudioService.transcribe(bot, fileId);
+        console.log(`📝 Transcrição obtida: "${text}"`);
+
+        await bot.api.editMessageText(ctx.chat.id, msg.message_id, `📝 *" ${text} "*`);
+        await ctx.replyWithChatAction('typing');
+
+        const response = await agent.handleMessage(userId, text);
+        await ctx.reply(response);
+    } catch (error) {
+        console.error("❌ Erro ao processar áudio:", error);
+        await bot.api.editMessageText(ctx.chat.id, msg.message_id, "❌ Desculpe, não consegui entender o áudio.");
+    }
 });
 
 // Handler de Mensagens

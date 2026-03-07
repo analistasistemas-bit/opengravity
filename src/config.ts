@@ -18,6 +18,7 @@ const envSchema = z.object({
     FB_MESSAGING_SENDER_ID: z.string().min(1, "FB_MESSAGING_SENDER_ID is required"),
     FB_APP_ID: z.string().min(1, "FB_APP_ID is required"),
     FB_MEASUREMENT_ID: z.string().optional(),
+    GROQ_AUDIO_MODEL: z.string().default("whisper-large-v3"),
 });
 
 const _env = envSchema.safeParse(process.env);
