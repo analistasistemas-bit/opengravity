@@ -44,6 +44,17 @@ function asObject(value: unknown): Record<string, unknown> | null {
         : null;
 }
 
+function normalizeToolArguments(toolName: string, argumentsRecord: Record<string, unknown>): Record<string, unknown> {
+    if ((toolName === 'gmail_search' || toolName === 'drive_search') && typeof argumentsRecord.limit === 'string') {
+        const parsedLimit = Number(argumentsRecord.limit);
+        if (!Number.isNaN(parsedLimit)) {
+            argumentsRecord.limit = parsedLimit;
+        }
+    }
+
+    return argumentsRecord;
+}
+
 export function parseToolCallFromText(content: string | null | undefined): ParsedToolCall | null {
     if (!content) {
         return null;
@@ -69,14 +80,17 @@ export function parseToolCallFromText(content: string | null | undefined): Parse
         return null;
     }
 
-    const rawBody = trimmed.slice('<function='.length, -'</function>'.length);
-    const separatorIndex = rawBody.indexOf('=');
-    if (separatorIndex === -1) {
+    const rawBody = trimmed.slice('<function='.length, -'</function>'.length).trim();
+    const bodyStartIndex = rawBody.indexOf('{');
+    if (bodyStartIndex === -1) {
         return null;
     }
 
-    const functionName = rawBody.slice(0, separatorIndex).trim();
-    const rawArguments = rawBody.slice(separatorIndex + 1).trim().replace(/>$/, '');
+    const functionName = rawBody
+        .slice(0, bodyStartIndex)
+        .trim()
+        .replace(/[=>\s]+$/g, '');
+    const rawArguments = rawBody.slice(bodyStartIndex).trim().replace(/>$/, '');
     if (!functionName || !rawArguments) {
         return null;
     }
@@ -90,7 +104,7 @@ export function parseToolCallFromText(content: string | null | undefined): Parse
 
         return {
             name: functionName,
-            arguments: argumentsRecord,
+            arguments: normalizeToolArguments(functionName, argumentsRecord),
         };
     } catch {
         return null;
