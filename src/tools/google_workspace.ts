@@ -51,20 +51,50 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function formatDateAsSlash(value: string): string {
+    return value.replace(/-/g, '/');
+}
+
+function nextDate(dateText: string): string {
+    const [year, month, day] = dateText.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    date.setUTCDate(date.getUTCDate() + 1);
+    const yyyy = date.getUTCFullYear();
+    const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(date.getUTCDate()).padStart(2, '0');
+    return `${yyyy}/${mm}/${dd}`;
+}
+
+export function sanitizeGmailQuery(query: string): string {
+    const match = query.match(/\bfrom:(\d{4}-\d{2}-\d{2})\b/);
+    if (!match) {
+        return query.trim();
+    }
+
+    const originalDate = match[1];
+    const start = formatDateAsSlash(originalDate);
+    const end = nextDate(originalDate);
+    return query.replace(match[0], `after:${start} before:${end}`).trim();
+}
+
 function normalizeGmailSearchEmail(entry: unknown): GmailSearchEmail | null {
     const record = asRecord(entry);
     if (!record) {
         return null;
     }
 
-    const from = asString(record.from) ?? asString(record.sender) ?? asString(record.author);
-    const subject = asString(record.subject) ?? asString(record.snippet) ?? '(sem assunto)';
+    const fromName = asString(record.fromName) ?? asString(record.name);
+    const fromEmail = asString(record.fromEmail) ?? asString(record.email);
+    const from = asString(record.from)
+        ?? asString(record.sender)
+        ?? asString(record.author)
+        ?? (fromName && fromEmail ? `${fromName} <${fromEmail}>` : undefined)
+        ?? fromName
+        ?? fromEmail
+        ?? '(remetente desconhecido)';
+    const subject = asString(record.subject) ?? asString(record.title) ?? asString(record.snippet) ?? '(sem assunto)';
     const date = asString(record.date) ?? asString(record.internalDate) ?? asString(record.receivedAt);
-    const id = asString(record.id) ?? asString(record.threadId);
-
-    if (!from) {
-        return null;
-    }
+    const id = asString(record.id) ?? asString(record.threadId) ?? asString(record.messageId);
 
     return { id, from, subject, date };
 }
@@ -79,6 +109,8 @@ export function normalizeGmailSearchResult(rawResult: unknown) {
                 ? rootRecord.results
                 : Array.isArray(rootRecord?.messages)
                     ? rootRecord.messages
+                    : Array.isArray(rootRecord?.items)
+                        ? rootRecord.items
                     : [];
 
     const emails = rawItems
@@ -172,7 +204,8 @@ export const googleWorkspaceTools = [
 
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
-        return normalizeGmailSearchResult(runGogCommand(`gmail search "${query}" --limit ${limit}`));
+        const sanitizedQuery = sanitizeGmailQuery(query);
+        return normalizeGmailSearchResult(runGogCommand(`gmail search "${sanitizedQuery}" --limit ${limit}`));
     },
     gmail_send: async ({ to, subject, body }: { to: string, subject: string, body: string }) => {
         return runGogCommand(`gmail send --to "${to}" --subject "${subject}" --body "${body}"`);

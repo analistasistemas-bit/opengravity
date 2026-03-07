@@ -5,6 +5,7 @@ import {
     buildGogExecOptions,
     buildGogShellCommand,
     normalizeGmailSearchResult,
+    sanitizeGmailQuery,
 } from '../src/tools/google_workspace.js';
 
 test('buildGogShellCommand injects the default account when GOG_ACCOUNT is set', () => {
@@ -67,4 +68,37 @@ test('normalizeGmailSearchResult keeps only the email fields the assistant shoul
             },
         ],
     });
+});
+
+test('normalizeGmailSearchResult keeps entries even when source uses fromName/fromEmail aliases', () => {
+    const normalized = normalizeGmailSearchResult({
+        items: [
+            {
+                messageId: 'm1',
+                fromName: 'GitHub',
+                fromEmail: 'noreply@github.com',
+                title: '[GitHub] Alert',
+                receivedAt: '2026-03-07T10:06:00Z',
+            },
+        ],
+    });
+
+    assert.deepEqual(normalized, {
+        count: 1,
+        emails: [
+            {
+                id: 'm1',
+                from: 'GitHub <noreply@github.com>',
+                subject: '[GitHub] Alert',
+                date: '2026-03-07T10:06:00Z',
+            },
+        ],
+    });
+});
+
+test('sanitizeGmailQuery rewrites invalid from:YYYY-MM-DD into date range', () => {
+    assert.equal(
+        sanitizeGmailQuery('in:inbox is:unread from:2026-03-07'),
+        'in:inbox is:unread after:2026/03/07 before:2026/03/08'
+    );
 });
