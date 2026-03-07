@@ -1,3 +1,4 @@
+# v1.0.2 - Re-disparando deploy após ajuste de firewall
 name: Deploy OpenGravity to VPS
 
 on:
