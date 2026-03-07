@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { Agent } from './agent/agent.js';
 import { AudioService } from './agent/audio_service.js';
 import { TTSService } from './agent/tts_service.js';
+import { createPerUserSerialExecutor } from './lib/per_user_queue.js';
 
 // Força uso de IPv4 para evitar ETIMEDOUT causado por roteamento IPv6 no macOS
 const httpsAgent = new https.Agent({ family: 4 });
@@ -15,6 +16,7 @@ const bot = new Bot(config.TELEGRAM_BOT_TOKEN, {
     }
 });
 const agent = new Agent();
+const runPerUserSerial = createPerUserSerialExecutor<void>();
 
 // Middleware de Log e Segurança
 bot.use(async (ctx, next) => {
@@ -41,59 +43,61 @@ bot.use(async (ctx, next) => {
 
 // Handler de Áudio
 bot.on('message:voice', async (ctx) => {
-    const userId = ctx.from.id;
-    const fileId = ctx.message.voice.file_id;
-    console.log(`🎤 Áudio recebido de ${userId}. FileID: ${fileId}`);
+    await runPerUserSerial(String(ctx.from.id), async () => {
+        const userId = ctx.from.id;
+        const fileId = ctx.message.voice.file_id;
+        console.log(`🎤 Áudio recebido de ${userId}. FileID: ${fileId}`);
 
-    await ctx.replyWithChatAction('typing');
-    const msg = await ctx.reply("👂 Estou ouvindo...");
-
-    try {
-        const text = await AudioService.transcribe(bot, fileId);
-        console.log(`📝 Transcrição obtida: "${text}"`);
-
-        await bot.api.editMessageText(ctx.chat.id, msg.message_id, `📝 *" ${text} "*`);
         await ctx.replyWithChatAction('typing');
+        const msg = await ctx.reply("👂 Estou ouvindo...");
 
-        const response = await agent.handleMessage(userId, text);
-        await ctx.reply(response);
-
-        // Resposta por voz (Sempre tenta, Edge TTS é gratuito)
         try {
-            await ctx.replyWithChatAction('record_voice');
-            const audioPath = await TTSService.generateSpeech(response);
-            await ctx.replyWithVoice(new InputFile(audioPath));
-            await TTSService.cleanup(audioPath);
-        } catch (ttsError) {
-            console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
+            const text = await AudioService.transcribe(bot, fileId);
+            console.log(`📝 Transcrição obtida: "${text}"`);
+
+            await bot.api.editMessageText(ctx.chat.id, msg.message_id, `📝 *" ${text} "*`);
+            await ctx.replyWithChatAction('typing');
+
+            const response = await agent.handleMessage(userId, text);
+            await ctx.reply(response);
+
+            try {
+                await ctx.replyWithChatAction('record_voice');
+                const audioPath = await TTSService.generateSpeech(response);
+                await ctx.replyWithVoice(new InputFile(audioPath));
+                await TTSService.cleanup(audioPath);
+            } catch (ttsError) {
+                console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
+            }
+        } catch (error) {
+            console.error("❌ Erro ao processar áudio:", error);
+            await bot.api.editMessageText(ctx.chat.id, msg.message_id, "❌ Desculpe, não consegui entender o áudio.");
         }
-    } catch (error) {
-        console.error("❌ Erro ao processar áudio:", error);
-        await bot.api.editMessageText(ctx.chat.id, msg.message_id, "❌ Desculpe, não consegui entender o áudio.");
-    }
+    });
 });
 
 // Handler de Mensagens
 bot.on('message:text', async (ctx) => {
-    const userId = ctx.from.id;
-    const text = ctx.message.text;
-    console.log(`📨 Recebido: "${text}" de ${userId}`);
+    await runPerUserSerial(String(ctx.from.id), async () => {
+        const userId = ctx.from.id;
+        const text = ctx.message.text;
+        console.log(`📨 Recebido: "${text}" de ${userId}`);
 
-    // Mostra que o bot está "digitando"
-    await ctx.replyWithChatAction('typing');
-    console.log(`✍️ Chat action 'typing' enviado.`);
+        await ctx.replyWithChatAction('typing');
+        console.log(`✍️ Chat action 'typing' enviado.`);
 
-    try {
-        console.log(`🤖 Chamando agent.handleMessage...`);
-        const response = await agent.handleMessage(userId, text);
-        console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
-        await ctx.reply(response);
+        try {
+            console.log(`🤖 Chamando agent.handleMessage...`);
+            const response = await agent.handleMessage(userId, text);
+            console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
+            await ctx.reply(response);
 
-        console.log(`✅ Mensagem enviada para o usuário.`);
-    } catch (error) {
-        console.error("❌ Erro ao processar mensagem:", error);
-        await ctx.reply("Desculpe, ocorreu um erro interno ao processar sua mensagem.");
-    }
+            console.log(`✅ Mensagem enviada para o usuário.`);
+        } catch (error) {
+            console.error("❌ Erro ao processar mensagem:", error);
+            await ctx.reply("Desculpe, ocorreu um erro interno ao processar sua mensagem.");
+        }
+    });
 });
 
 // Comandos básicos

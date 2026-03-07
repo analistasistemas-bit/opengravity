@@ -1,42 +1,19 @@
 import Groq from 'groq-sdk';
-import type { ChatCompletionMessageParam } from 'groq-sdk/resources/chat/completions';
 import { config } from '../config.js';
 import { Memory, ChatMessage } from './memory.js';
-import { tools, toolHandlers } from '../tools/index.js';
+import { toolHandlers } from '../tools/index.js';
 
-export const SYSTEM_PROMPT = 'Você é o OpenGravity, um assistente de IA pessoal e inteligente. REGRA ABSOLUTA: você SEMPRE responde em texto normalmente — o sistema converte automaticamente seu texto em áudio para o usuário ouvir. NUNCA diga que não pode falar ou produzir áudio. Quando o usuário pedir uma resposta em áudio ou voz, simplesmente responda em texto como faria normalmente — o sistema fará a conversão. Você tem acesso a ferramentas para ajudar o usuário. Quando usar resultados do Gmail, responda objetivamente com remetente e assunto dos e-mails encontrados. Se houver data disponível, você pode incluí-la. Não diga que não pode exibir os resultados se a ferramenta já retornou os dados. Em consultas de e-mail, não adicione filtros extras (como is:unread ou in:inbox) a menos que o usuário peça explicitamente. Quando precisar usar uma ferramenta, use apenas a tools API da plataforma. Nunca escreva <function=...>, pseudo-XML ou chamadas de ferramenta inline no texto.';
+export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal. Responda sempre em texto natural. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, primeiro planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado.';
 
-export function formatToolResultContent(result: unknown): string {
-    if (typeof result === 'string') {
-        return result;
-    }
+const PLANNER_PROMPT = `${SYSTEM_PROMPT} Sua primeira tarefa e escolher a acao do backend. Responda somente JSON valido em um destes formatos: {"action":"respond","response":"..."} ou {"action":"tool","toolName":"gmail_search|gmail_send|calendar_list|drive_search|get_current_time","arguments":{...}}. Em consultas de email, nao adicione filtros extras como is:unread ou in:inbox a menos que o usuario peca. Se o usuario pedir emails de hoje ou das ultimas 24 horas, use queries Gmail de data como newer:1d ou after:/before:, nunca from:YYYY-MM-DD.`;
 
-    return JSON.stringify(result, null, 2);
-}
+const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta.`;
 
-export function buildModelMessages(history: ChatMessage[]): ChatCompletionMessageParam[] {
-    const messages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: SYSTEM_PROMPT },
-    ];
+type ToolName = 'gmail_search' | 'gmail_send' | 'calendar_list' | 'drive_search' | 'get_current_time';
 
-    for (const message of history) {
-        if (message.role === 'user' && message.content) {
-            messages.push({ role: 'user', content: message.content });
-            continue;
-        }
-
-        if (message.role === 'assistant' && message.content && !message.tool_calls) {
-            messages.push({ role: 'assistant', content: message.content });
-        }
-    }
-
-    return messages;
-}
-
-type ParsedToolCall = {
-    name: string;
-    arguments: Record<string, unknown>;
-};
+type PlannerResponse =
+    | { action: 'respond'; response: string }
+    | { action: 'tool'; toolName: ToolName; arguments: Record<string, unknown> };
 
 function asObject(value: unknown): Record<string, unknown> | null {
     return value && typeof value === 'object' && !Array.isArray(value)
@@ -44,107 +21,84 @@ function asObject(value: unknown): Record<string, unknown> | null {
         : null;
 }
 
-function normalizeToolArguments(toolName: string, argumentsRecord: Record<string, unknown>): Record<string, unknown> {
-    if ((toolName === 'gmail_search' || toolName === 'drive_search') && typeof argumentsRecord.limit === 'string') {
-        const parsedLimit = Number(argumentsRecord.limit);
+function asString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function normalizePlannerArguments(toolName: ToolName, argumentsRecord: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...argumentsRecord };
+
+    if ('limit' in normalized && typeof normalized.limit === 'string') {
+        const parsedLimit = Number(normalized.limit);
         if (!Number.isNaN(parsedLimit)) {
-            argumentsRecord.limit = parsedLimit;
+            normalized.limit = parsedLimit;
         }
     }
 
-    return argumentsRecord;
+    if (toolName === 'gmail_search' && typeof normalized.query === 'string') {
+        normalized.query = normalized.query.trim();
+    }
+
+    return normalized;
 }
 
-export function parseToolCallFromText(content: string | null | undefined): ParsedToolCall | null {
+export function formatToolResultContent(result: unknown): string {
+    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+}
+
+export function buildModelMessages(history: ChatMessage[]) {
+    return history
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && !message.tool_calls))
+        .map((message) => ({
+            role: message.role,
+            content: message.content,
+        }));
+}
+
+export function parsePlannerResponse(content: string | null | undefined): PlannerResponse | null {
     if (!content) {
         return null;
     }
 
-    const trimmed = content.trim();
-
     try {
-        const parsed = JSON.parse(trimmed);
+        const parsed = JSON.parse(content);
         const record = asObject(parsed);
-        const parameters = asObject(record?.parameters);
-        if (record?.type === 'function' && typeof record.name === 'string' && parameters) {
-            return {
-                name: record.name,
-                arguments: parameters,
-            };
-        }
-    } catch {
-        // Fall through to the pseudo-XML parser.
-    }
-
-    const functionStart = trimmed.indexOf('<function=');
-    const functionEnd = trimmed.indexOf('</function>');
-    if (functionStart === -1 || functionEnd === -1 || functionEnd <= functionStart) {
-        return null;
-    }
-
-    const rawBody = trimmed
-        .slice(functionStart + '<function='.length, functionEnd)
-        .trim();
-    const bodyStartIndex = rawBody.indexOf('{');
-    if (bodyStartIndex === -1) {
-        return null;
-    }
-
-    const functionName = rawBody
-        .slice(0, bodyStartIndex)
-        .trim()
-        .replace(/[=>\s]+$/g, '');
-    const rawArguments = rawBody.slice(bodyStartIndex).trim().replace(/>$/, '');
-    if (!functionName || !rawArguments) {
-        return null;
-    }
-
-    try {
-        const parsedArguments = JSON.parse(rawArguments);
-        const argumentsRecord = asObject(parsedArguments);
-        if (!argumentsRecord) {
+        if (!record || typeof record.action !== 'string') {
             return null;
         }
 
-        return {
-            name: functionName,
-            arguments: normalizeToolArguments(functionName, argumentsRecord),
-        };
+        if (record.action === 'respond') {
+            const response = asString(record.response);
+            return response ? { action: 'respond', response } : null;
+        }
+
+        if (record.action === 'tool') {
+            const toolName = asString(record.toolName) as ToolName | undefined;
+            const argumentsRecord = asObject(record.arguments);
+            if (!toolName || !argumentsRecord) {
+                return null;
+            }
+
+            return {
+                action: 'tool',
+                toolName,
+                arguments: normalizePlannerArguments(toolName, argumentsRecord),
+            };
+        }
     } catch {
         return null;
     }
+
+    return null;
 }
 
-function extractToolUseFailure(error: unknown): ParsedToolCall | null {
-    if (!error || typeof error !== 'object') {
-        return null;
+async function executePlannedTool(toolName: ToolName, argumentsRecord: Record<string, unknown>) {
+    const handler = toolHandlers[toolName];
+    if (!handler) {
+        throw new Error(`Ferramenta nao suportada: ${toolName}`);
     }
 
-    const groqError = error as {
-        error?: {
-            error?: {
-                code?: string;
-                failed_generation?: string;
-            };
-        };
-    };
-
-    if (groqError.error?.error?.code !== 'tool_use_failed') {
-        return null;
-    }
-
-    return parseToolCallFromText(groqError.error.error.failed_generation);
-}
-
-function buildSyntheticToolCall(parsedToolCall: ParsedToolCall, iteration: number) {
-    return {
-        id: `fallback_tool_call_${iteration}_${Date.now()}`,
-        type: 'function' as const,
-        function: {
-            name: parsedToolCall.name,
-            arguments: JSON.stringify(parsedToolCall.arguments),
-        },
-    };
+    return handler(argumentsRecord);
 }
 
 export class Agent {
@@ -156,107 +110,69 @@ export class Agent {
         this.memory = new Memory();
     }
 
-    async handleMessage(userId: number, text: string): Promise<string> {
-        console.log(`🤖 Agent: Iniciando processamento para usuário ${userId}`);
-        // Adiciona mensagem do usuário à memória
-        await this.memory.addMessage({ user_id: userId, role: 'user', content: text });
-        const history = await this.memory.getHistory(userId);
-        const messages = buildModelMessages(history);
+    private async createPlan(history: ChatMessage[], text: string): Promise<PlannerResponse> {
+        const completion = await this.groq.chat.completions.create({
+            model: config.GROQ_MODEL,
+            response_format: { type: 'json_object' },
+            temperature: 0,
+            messages: [
+                { role: 'system', content: PLANNER_PROMPT },
+                ...buildModelMessages(history),
+                { role: 'user', content: text },
+            ] as any,
+        });
 
-        let iterations = 0;
-        const maxIterations = 5;
-
-        while (iterations < maxIterations) {
-            console.log(`🧠 Agent: Enviando contexto para Groq (Iteração ${iterations + 1})...`);
-            let completion;
-            try {
-                completion = await this.groq.chat.completions.create({
-                    model: config.GROQ_MODEL,
-                    messages,
-                    tools: tools as any,
-                    tool_choice: 'auto',
-                    parallel_tool_calls: false,
-                    temperature: 0,
-                });
-            } catch (error) {
-                const failedToolCall = extractToolUseFailure(error);
-                if (failedToolCall) {
-                    completion = {
-                        choices: [
-                            {
-                                message: {
-                                    content: null,
-                                    tool_calls: [buildSyntheticToolCall(failedToolCall, iterations)],
-                                },
-                            },
-                        ],
-                    } as any;
-                } else {
-                    throw error;
-                }
-            }
-
-            const message = completion.choices[0].message;
-            console.log(`✅ Agent: Resposta do Groq recebida. Content: "${message.content}", ToolCalls: ${message.tool_calls?.length || 0}`);
-
-            const contentToolCall = !message.tool_calls || message.tool_calls.length === 0
-                ? parseToolCallFromText(message.content)
-                : null;
-
-            if (contentToolCall) {
-                message.tool_calls = [buildSyntheticToolCall(contentToolCall, iterations)];
-                message.content = null;
-            }
-
-            // Adiciona a mensagem do assistente ao histórico para a próxima iteração
-            // Se não houver chamadas de ferramenta, terminamos
-            if (!message.tool_calls || message.tool_calls.length === 0) {
-                const content = message.content || "";
-                await this.memory.addMessage({ user_id: userId, role: 'assistant', content });
-                return content;
-            }
-
-            // Adiciona a intenção do assistente de usar ferramentas
-            await this.memory.addMessage({
-                user_id: userId,
-                role: 'assistant',
-                content: message.content || "",
-                name: undefined,
-                tool_call_id: undefined,
-                tool_calls: message.tool_calls
-            });
-            messages.push({
-                role: 'assistant',
-                content: message.content || null,
-                tool_calls: message.tool_calls as any,
-            });
-
-            // Executa as ferramentas
-            for (const toolCall of message.tool_calls) {
-                const handler = toolHandlers[toolCall.function.name];
-                if (handler) {
-                    console.log(`🔧 Executando ferramenta: ${toolCall.function.name}`);
-                    const result = await handler(JSON.parse(toolCall.function.arguments));
-                    const content = formatToolResultContent(result);
-
-                    await this.memory.addMessage({
-                        user_id: userId,
-                        role: 'tool',
-                        content,
-                        name: toolCall.function.name,
-                        tool_call_id: toolCall.id
-                    });
-                    messages.push({
-                        role: 'tool',
-                        content,
-                        tool_call_id: toolCall.id,
-                    });
-                }
-            }
-
-            iterations++;
+        const content = completion.choices[0].message.content;
+        const plan = parsePlannerResponse(content);
+        if (!plan) {
+            throw new Error(`Planner retornou JSON invalido: ${content}`);
         }
 
-        return "Desculpe, atingi o limite de processamento para essa solicitação.";
+        return plan;
+    }
+
+    private async generateFinalResponse(history: ChatMessage[], userText: string, toolName: ToolName, toolResult: unknown): Promise<string> {
+        const completion = await this.groq.chat.completions.create({
+            model: config.GROQ_MODEL,
+            temperature: 0,
+            messages: [
+                { role: 'system', content: TOOL_RESULT_PROMPT },
+                ...buildModelMessages(history),
+                { role: 'user', content: userText },
+                {
+                    role: 'assistant',
+                    content: `Ferramenta executada: ${toolName}\nResultado:\n${formatToolResultContent(toolResult)}`,
+                },
+            ] as any,
+        });
+
+        return completion.choices[0].message.content || 'Nao consegui gerar uma resposta.';
+    }
+
+    async handleMessage(userId: number, text: string): Promise<string> {
+        console.log(`🤖 Agent: Iniciando processamento para usuário ${userId}`);
+        await this.memory.addMessage({ user_id: userId, role: 'user', content: text });
+        const history = await this.memory.getHistory(userId);
+
+        console.log('🧠 Agent: Gerando plano de execucao...');
+        const plan = await this.createPlan(history, text);
+        console.log(`🧭 Agent: Plano escolhido: ${JSON.stringify(plan)}`);
+
+        if (plan.action === 'respond') {
+            await this.memory.addMessage({ user_id: userId, role: 'assistant', content: plan.response });
+            return plan.response;
+        }
+
+        const toolResult = await executePlannedTool(plan.toolName, plan.arguments);
+        await this.memory.addMessage({
+            user_id: userId,
+            role: 'tool',
+            content: formatToolResultContent(toolResult),
+            name: plan.toolName,
+        });
+
+        const response = await this.generateFinalResponse(history, text, plan.toolName, toolResult);
+        await this.memory.addMessage({ user_id: userId, role: 'assistant', content: response });
+        return response;
     }
 }
