@@ -9,6 +9,10 @@ module.exports = {
             max_memory_restart: '1G',
             env: {
                 NODE_ENV: 'production',
+                PATH: `${process.env.HOME || '/home/opengravity'}/bin:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`,
+                GOG_ACCOUNT: 'analistasistemas@gmail.com',
+                GOG_KEYRING_BACKEND: 'file',
+                GOG_KEYRING_PASSWORD: process.env.GOG_KEYRING_PASSWORD,
             }
         }
     ]

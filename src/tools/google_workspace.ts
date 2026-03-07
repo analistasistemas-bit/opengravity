@@ -1,12 +1,47 @@
 import { execSync } from 'child_process';
 
+type GogEnvironment = NodeJS.ProcessEnv;
+
+function quoteShellValue(value: string): string {
+    return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
+function commandHasAccountFlag(command: string): boolean {
+    return /(^|\s)--account(\s|=)/.test(command);
+}
+
+export function buildGogShellCommand(command: string, env: GogEnvironment = process.env): string {
+    const accountSegment = env.GOG_ACCOUNT && !commandHasAccountFlag(command)
+        ? ` --account ${quoteShellValue(env.GOG_ACCOUNT)}`
+        : '';
+
+    return `gog ${command}${accountSegment} --json --no-input`;
+}
+
+export function buildGogExecOptions(env: GogEnvironment = process.env) {
+    const pathSegments = [
+        env.HOME ? `${env.HOME}/bin` : undefined,
+        env.PATH,
+    ].filter(Boolean);
+
+    return {
+        encoding: 'utf-8' as const,
+        env: {
+            ...process.env,
+            ...env,
+            PATH: pathSegments.join(':'),
+        },
+    };
+}
+
 /**
  * Executa um comando gog e retorna o resultado.
  */
 function runGogCommand(command: string): any {
     try {
-        console.log(`📡 Executando: gog ${command} --json --no-input`);
-        const output = execSync(`gog ${command} --json --no-input`, { encoding: 'utf-8' });
+        const shellCommand = buildGogShellCommand(command);
+        console.log(`📡 Executando: ${shellCommand}`);
+        const output = execSync(shellCommand, buildGogExecOptions());
         return JSON.parse(output);
     } catch (error: any) {
         console.error(`❌ Erro ao executar gog: ${error.message}`);
