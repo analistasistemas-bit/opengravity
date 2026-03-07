@@ -19,6 +19,17 @@ test('buildGogShellCommand injects the default account when GOG_ACCOUNT is set',
     );
 });
 
+test('buildGogShellCommand uses explicit GOG_BIN when provided', () => {
+    const command = buildGogShellCommand('gmail search "newer_than:1d"', {
+        GOG_BIN: '/home/opengravity/bin/gog',
+    });
+
+    assert.equal(
+        command,
+        '/home/opengravity/bin/gog gmail search "newer_than:1d" --json --no-input'
+    );
+});
+
 test('buildGogShellCommand does not duplicate account when command already sets one', () => {
     const command = buildGogShellCommand('gmail search "newer_than:1d" --account "other@gmail.com"', {
         GOG_ACCOUNT: 'analistasistemas@gmail.com',

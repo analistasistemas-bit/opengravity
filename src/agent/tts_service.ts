@@ -6,6 +6,11 @@ import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { config } from '../config.js';
 
 export class TTSService {
+    private static elevenLabsDisabledUntilRestart = false;
+
+    static isElevenLabsPaidPlanRequired(responseStatus: number, responseBody: string): boolean {
+        return responseStatus === 402 && /paid_plan_required/i.test(responseBody);
+    }
 
     /**
      * Método principal: tenta Microsoft Edge TTS primeiro (gratuito, PT-BR Neural),
@@ -16,6 +21,9 @@ export class TTSService {
             console.log(`🎤 TTSService: Tentando Microsoft Edge TTS (PT-BR Neural)...`);
             return await TTSService.generateSpeechEdgeTTS(text);
         } catch (edgeError) {
+            if (TTSService.elevenLabsDisabledUntilRestart) {
+                throw edgeError;
+            }
             console.warn(`⚠️ TTSService: Edge TTS falhou, tentando ElevenLabs como fallback...`);
             console.warn(`   Motivo: ${(edgeError as Error).message}`);
             return await TTSService.generateSpeechElevenLabs(text);
@@ -91,6 +99,10 @@ export class TTSService {
 
         if (!response.ok) {
             const errorText = await response.text();
+            if (TTSService.isElevenLabsPaidPlanRequired(response.status, errorText)) {
+                TTSService.elevenLabsDisabledUntilRestart = true;
+                throw new Error('ElevenLabs bloqueado para o plano atual (402 paid_plan_required). Fallback desabilitado ate reiniciar o processo.');
+            }
             throw new Error(`ElevenLabs retornou ${response.status}: ${errorText}`);
         }
 

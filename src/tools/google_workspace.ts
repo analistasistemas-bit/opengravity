@@ -18,11 +18,12 @@ function commandHasAccountFlag(command: string): boolean {
 }
 
 export function buildGogShellCommand(command: string, env: GogEnvironment = process.env): string {
+    const gogBinary = env.GOG_BIN || 'gog';
     const accountSegment = env.GOG_ACCOUNT && !commandHasAccountFlag(command)
         ? ` --account ${quoteShellValue(env.GOG_ACCOUNT)}`
         : '';
 
-    return `gog ${command}${accountSegment} --json --no-input`;
+    return `${gogBinary} ${command}${accountSegment} --json --no-input`;
 }
 
 export function buildGogExecOptions(env: GogEnvironment = process.env) {
@@ -205,7 +206,12 @@ export const googleWorkspaceTools = [
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
         const sanitizedQuery = sanitizeGmailQuery(query);
-        return normalizeGmailSearchResult(runGogCommand(`gmail search "${sanitizedQuery}" --limit ${limit}`));
+        const normalized = normalizeGmailSearchResult(runGogCommand(`gmail search "${sanitizedQuery}" --limit ${limit}`));
+        const firstEmail = normalized.emails[0];
+        console.log(
+            `📬 Gmail search summary: query="${sanitizedQuery}", count=${normalized.count}, first="${firstEmail?.from || '-'} | ${firstEmail?.subject || '-'}"`
+        );
+        return normalized;
     },
     gmail_send: async ({ to, subject, body }: { to: string, subject: string, body: string }) => {
         return runGogCommand(`gmail send --to "${to}" --subject "${subject}" --body "${body}"`);
