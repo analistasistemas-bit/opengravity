@@ -53,7 +53,7 @@ export class TTSService {
             audioStream.on('error', reject);
         });
 
-        console.log(`✅ Edge TTS: Áudio gerado (voz: ${config.EDGE_TTS_VOICE}) em ${tempFilePath}`);
+        console.log(`✅ [Edge TTS]: Áudio gerado com sucesso (voz: ${config.EDGE_TTS_VOICE})`);
         return tempFilePath;
     }
 
@@ -96,7 +96,7 @@ export class TTSService {
 
         const buffer = await response.buffer();
         await fs.writeFile(tempFilePath, buffer);
-        console.log(`✅ ElevenLabs (fallback): Áudio gerado em ${tempFilePath}`);
+        console.log(`✅ [ElevenLabs]: Áudio gerado com sucesso (fallback)`);
 
         return tempFilePath;
     }
