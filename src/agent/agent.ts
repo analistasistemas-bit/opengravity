@@ -33,13 +33,100 @@ export function buildModelMessages(history: ChatMessage[]): ChatCompletionMessag
     return messages;
 }
 
-function isToolUseFailedError(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-        return false;
+type ParsedToolCall = {
+    name: string;
+    arguments: Record<string, unknown>;
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+export function parseToolCallFromText(content: string | null | undefined): ParsedToolCall | null {
+    if (!content) {
+        return null;
     }
 
-    const groqError = error as { error?: { error?: { code?: string } } };
-    return groqError.error?.error?.code === 'tool_use_failed';
+    const trimmed = content.trim();
+
+    try {
+        const parsed = JSON.parse(trimmed);
+        const record = asObject(parsed);
+        const parameters = asObject(record?.parameters);
+        if (record?.type === 'function' && typeof record.name === 'string' && parameters) {
+            return {
+                name: record.name,
+                arguments: parameters,
+            };
+        }
+    } catch {
+        // Fall through to the pseudo-XML parser.
+    }
+
+    if (!trimmed.startsWith('<function=') || !trimmed.endsWith('</function>')) {
+        return null;
+    }
+
+    const rawBody = trimmed.slice('<function='.length, -'</function>'.length);
+    const separatorIndex = rawBody.indexOf('=');
+    if (separatorIndex === -1) {
+        return null;
+    }
+
+    const functionName = rawBody.slice(0, separatorIndex).trim();
+    const rawArguments = rawBody.slice(separatorIndex + 1).trim().replace(/>$/, '');
+    if (!functionName || !rawArguments) {
+        return null;
+    }
+
+    try {
+        const parsedArguments = JSON.parse(rawArguments);
+        const argumentsRecord = asObject(parsedArguments);
+        if (!argumentsRecord) {
+            return null;
+        }
+
+        return {
+            name: functionName,
+            arguments: argumentsRecord,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function extractToolUseFailure(error: unknown): ParsedToolCall | null {
+    if (!error || typeof error !== 'object') {
+        return null;
+    }
+
+    const groqError = error as {
+        error?: {
+            error?: {
+                code?: string;
+                failed_generation?: string;
+            };
+        };
+    };
+
+    if (groqError.error?.error?.code !== 'tool_use_failed') {
+        return null;
+    }
+
+    return parseToolCallFromText(groqError.error.error.failed_generation);
+}
+
+function buildSyntheticToolCall(parsedToolCall: ParsedToolCall, iteration: number) {
+    return {
+        id: `fallback_tool_call_${iteration}_${Date.now()}`,
+        type: 'function' as const,
+        function: {
+            name: parsedToolCall.name,
+            arguments: JSON.stringify(parsedToolCall.arguments),
+        },
+    };
 }
 
 export class Agent {
@@ -74,20 +161,34 @@ export class Agent {
                     temperature: 0,
                 });
             } catch (error) {
-                if (isToolUseFailedError(error)) {
-                    messages.push({
-                        role: 'system',
-                        content: 'Correcao de protocolo: se precisar de ferramenta, responda somente com tool_calls JSON validos da API. Nao escreva tags <function=...> nem chamadas inline.',
-                    });
-                    iterations++;
-                    continue;
+                const failedToolCall = extractToolUseFailure(error);
+                if (failedToolCall) {
+                    completion = {
+                        choices: [
+                            {
+                                message: {
+                                    content: null,
+                                    tool_calls: [buildSyntheticToolCall(failedToolCall, iterations)],
+                                },
+                            },
+                        ],
+                    } as any;
+                } else {
+                    throw error;
                 }
-
-                throw error;
             }
 
             const message = completion.choices[0].message;
             console.log(`✅ Agent: Resposta do Groq recebida. Content: "${message.content}", ToolCalls: ${message.tool_calls?.length || 0}`);
+
+            const contentToolCall = !message.tool_calls || message.tool_calls.length === 0
+                ? parseToolCallFromText(message.content)
+                : null;
+
+            if (contentToolCall) {
+                message.tool_calls = [buildSyntheticToolCall(contentToolCall, iterations)];
+                message.content = null;
+            }
 
             // Adiciona a mensagem do assistente ao histórico para a próxima iteração
             // Se não houver chamadas de ferramenta, terminamos
