@@ -58,16 +58,14 @@ bot.on('message:voice', async (ctx) => {
         const response = await agent.handleMessage(userId, text);
         await ctx.reply(response);
 
-        // Resposta por voz (Opcional, se a chave existir)
-        if (config.ELEVENLABS_API_KEY) {
-            try {
-                await ctx.replyWithChatAction('record_voice');
-                const audioPath = await TTSService.generateSpeech(response);
-                await ctx.replyWithVoice(new InputFile(audioPath));
-                await TTSService.cleanup(audioPath);
-            } catch (ttsError) {
-                console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
-            }
+        // Resposta por voz (Sempre tenta, Edge TTS é gratuito)
+        try {
+            await ctx.replyWithChatAction('record_voice');
+            const audioPath = await TTSService.generateSpeech(response);
+            await ctx.replyWithVoice(new InputFile(audioPath));
+            await TTSService.cleanup(audioPath);
+        } catch (ttsError) {
+            console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
         }
     } catch (error) {
         console.error("❌ Erro ao processar áudio:", error);
@@ -91,16 +89,14 @@ bot.on('message:text', async (ctx) => {
         console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
         await ctx.reply(response);
 
-        // Resposta por voz (Opcional, se a chave existir)
-        if (config.ELEVENLABS_API_KEY) {
-            try {
-                await ctx.replyWithChatAction('record_voice');
-                const audioPath = await TTSService.generateSpeech(response);
-                await ctx.replyWithVoice(new InputFile(audioPath));
-                await TTSService.cleanup(audioPath);
-            } catch (ttsError) {
-                console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
-            }
+        // Resposta por voz (Sempre tenta, Edge TTS é gratuito)
+        try {
+            await ctx.replyWithChatAction('record_voice');
+            const audioPath = await TTSService.generateSpeech(response);
+            await ctx.replyWithVoice(new InputFile(audioPath));
+            await TTSService.cleanup(audioPath);
+        } catch (ttsError) {
+            console.error("⚠️ Falha ao gerar resposta por voz:", ttsError);
         }
 
         console.log(`✅ Mensagem enviada para o usuário.`);

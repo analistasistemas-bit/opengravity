@@ -20,7 +20,8 @@ const envSchema = z.object({
     FB_MEASUREMENT_ID: z.string().optional(),
     GROQ_AUDIO_MODEL: z.string().default("whisper-large-v3"),
     ELEVENLABS_API_KEY: z.string().optional(),
-    ELEVENLABS_VOICE_ID: z.string().default("XB0fDUndgUByTcfbW97i"), // Charlotte (Multilingual)
+    ELEVENLABS_VOICE_ID: z.string().default("pNInz6obpgDQGcFmaJgB"), // Adam (Multilingual) - fallback
+    EDGE_TTS_VOICE: z.string().default("pt-BR-AntonioNeural"), // Voz masculina PT-BR gratuita
 });
 
 const _env = envSchema.safeParse(process.env);
