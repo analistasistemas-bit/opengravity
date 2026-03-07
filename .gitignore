@@ -5,3 +5,4 @@ data
 *.db
 *.db-journal
 service-account.json
+client_secret.json
