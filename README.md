@@ -51,9 +51,11 @@ npm run dev
 
 ## 🌐 Deploy e Produção
 
-O projeto foi configurado para rodar em uma VPS protegida. Para detalhes completos sobre comandos técnicos, configuração de firewall, chaves SSH e PM2, consulte nossa documentação dedicada:
+O projeto está pronto para rodar localmente e em produção. Confira os guias detalhados:
 
-👉 **[Guia de Deploy VPS](./docs/vps-setup-guide.md)**
+👉 **[Guia de Setup Local](./docs/local-setup-guide.md)** — Tudo o que você instalou e configurou para o bot funcionar na sua máquina.
+
+👉 **[Guia de Deploy VPS](./docs/vps-setup-guide.md)** — Como o bot foi configurado, protegido e automatizado na nuvem.
 
 ---
 
