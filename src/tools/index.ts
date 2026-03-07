@@ -14,6 +14,6 @@ export const tools = [
 
 export const toolHandlers: Record<string, Function> = {
     get_current_time: () => {
-        return new Date().toLocaleString('pt-BR');
+        return new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
     },
 };
