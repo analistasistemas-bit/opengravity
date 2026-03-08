@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
     buildModelMessages,
+    buildPlannerMessages,
     parsePlannerResponse,
     SYSTEM_PROMPT,
 } from '../src/agent/agent.js';
@@ -23,6 +24,32 @@ test('buildModelMessages keeps conversational history and excludes old tool trac
     assert.deepEqual(messages, [
         { role: 'user', content: 'Quais emails recebi hoje?' },
         { role: 'assistant', content: 'Voce recebeu 1 email hoje.' },
+    ]);
+});
+
+test('buildPlannerMessages ignores prior task history for standalone greetings', () => {
+    const messages = buildPlannerMessages([
+        { user_id: 1, role: 'user', content: 'Consegues ver meus emails do gmail?' },
+        { user_id: 1, role: 'assistant', content: 'Nao ha e-mails novos.' },
+    ], 'Oi');
+
+    assert.deepEqual(messages, [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: 'Oi' },
+    ]);
+});
+
+test('buildPlannerMessages keeps recent history for follow-up requests', () => {
+    const messages = buildPlannerMessages([
+        { user_id: 1, role: 'user', content: 'Consegues ver meus emails do gmail?' },
+        { user_id: 1, role: 'assistant', content: 'Nao ha e-mails novos.' },
+    ], 'E no calendario?');
+
+    assert.deepEqual(messages, [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: 'Consegues ver meus emails do gmail?' },
+        { role: 'assistant', content: 'Nao ha e-mails novos.' },
+        { role: 'user', content: 'E no calendario?' },
     ]);
 });
 

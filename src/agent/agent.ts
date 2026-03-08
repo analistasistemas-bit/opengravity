@@ -55,6 +55,38 @@ export function buildModelMessages(history: ChatMessage[]) {
         }));
 }
 
+function isStandaloneGreeting(text: string): boolean {
+    const normalized = text
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .trim()
+        .toLowerCase();
+
+    return /^(oi+|ola+|opa+|ei+|hey+|bom dia|boa tarde|boa noite|tudo bem\??|e ai|fala|blz|beleza|como vai\??)$/.test(normalized);
+}
+
+export function buildPlannerMessages(
+    history: ChatMessage[],
+    latestText: string,
+    systemPrompt: string = SYSTEM_PROMPT,
+) {
+    const conversation = buildModelMessages(history);
+    const recentConversation = conversation.slice(-6);
+
+    if (isStandaloneGreeting(latestText)) {
+        return [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: latestText },
+        ];
+    }
+
+    return [
+        { role: 'system', content: systemPrompt },
+        ...recentConversation,
+        { role: 'user', content: latestText },
+    ];
+}
+
 export function parsePlannerResponse(content: string | null | undefined): PlannerResponse | null {
     if (!content) {
         return null;
@@ -115,11 +147,7 @@ export class Agent {
             model: config.GROQ_MODEL,
             response_format: { type: 'json_object' },
             temperature: 0,
-            messages: [
-                { role: 'system', content: PLANNER_PROMPT },
-                ...buildModelMessages(history),
-                { role: 'user', content: text },
-            ] as any,
+            messages: buildPlannerMessages(history, text, PLANNER_PROMPT) as any,
         });
 
         const content = completion.choices[0].message.content;
@@ -151,12 +179,13 @@ export class Agent {
 
     async handleMessage(userId: number, text: string): Promise<string> {
         console.log(`🤖 Agent: Iniciando processamento para usuário ${userId}`);
-        await this.memory.addMessage({ user_id: userId, role: 'user', content: text });
         const history = await this.memory.getHistory(userId);
 
         console.log('🧠 Agent: Gerando plano de execucao...');
         const plan = await this.createPlan(history, text);
         console.log(`🧭 Agent: Plano escolhido: ${JSON.stringify(plan)}`);
+
+        await this.memory.addMessage({ user_id: userId, role: 'user', content: text });
 
         if (plan.action === 'respond') {
             await this.memory.addMessage({ user_id: userId, role: 'assistant', content: plan.response });
