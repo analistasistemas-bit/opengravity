@@ -103,6 +103,34 @@ bot.on('message:text', async (ctx) => {
 // Comandos básicos
 bot.command('start', (ctx) => ctx.reply('Olá! Eu sou o OpenGravity, seu agente pessoal local. Como posso ajudar hoje?'));
 bot.command('id', (ctx) => ctx.reply(`Seu ID do Telegram é: ${ctx.from?.id}`));
+bot.command('skills', (ctx) => {
+    const skills = agent.listAvailableSkills();
+    if (skills.length === 0) {
+        return ctx.reply('Nenhuma skill local encontrada no ambiente do bot.');
+    }
+
+    const lines = skills.map((skill) => `- ${skill.slug}: ${skill.description}`);
+    return ctx.reply(`Skills locais disponíveis:\n${lines.join('\n')}`);
+});
+
+bot.command('skill', (ctx) => {
+    const text = ctx.message?.text || '';
+    const [, ...parts] = text.split(' ');
+    const target = parts.join(' ').trim();
+
+    if (!target) {
+        return ctx.reply('Use `/skill nome-da-skill` para ver detalhes.', { parse_mode: 'Markdown' });
+    }
+
+    const skill = agent.getSkillByName(target);
+    if (!skill) {
+        return ctx.reply(`Não encontrei a skill "${target}". Use /skills para listar as disponíveis.`);
+    }
+
+    return ctx.reply(
+        `Skill: ${skill.slug}\nDescrição: ${skill.description}\nGuia resumido: ${skill.guidance.slice(0, 1200)}`,
+    );
+});
 
 // Inicialização
 console.log("🚀 OpenGravity está iniciando...");
