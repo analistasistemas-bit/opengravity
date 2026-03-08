@@ -113,3 +113,10 @@ test('sanitizeGmailQuery rewrites invalid from:YYYY-MM-DD into date range', () =
         'in:inbox is:unread after:2026/03/07 before:2026/03/08'
     );
 });
+
+test('sanitizeGmailQuery rewrites newer:1d into newer_than:1d', () => {
+    assert.equal(
+        sanitizeGmailQuery('in:inbox newer:1d'),
+        'in:inbox newer_than:1d'
+    );
+});

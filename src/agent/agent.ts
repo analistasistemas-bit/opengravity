@@ -5,9 +5,9 @@ import { toolHandlers } from '../tools/index.js';
 
 export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal. Responda sempre em texto natural. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, primeiro planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado.';
 
-const PLANNER_PROMPT = `${SYSTEM_PROMPT} Sua primeira tarefa e escolher a acao do backend. Responda somente JSON valido em um destes formatos: {"action":"respond","response":"..."} ou {"action":"tool","toolName":"gmail_search|gmail_send|calendar_list|drive_search|get_current_time","arguments":{...}}. Em consultas de email, nao adicione filtros extras como is:unread ou in:inbox a menos que o usuario peca. Se o usuario pedir emails de hoje ou das ultimas 24 horas, use queries Gmail de data como newer:1d ou after:/before:, nunca from:YYYY-MM-DD.`;
+const PLANNER_PROMPT = `${SYSTEM_PROMPT} Sua primeira tarefa e escolher a acao do backend. Responda somente JSON valido em um destes formatos: {"action":"respond","response":"..."} ou {"action":"tool","toolName":"gmail_search|gmail_send|calendar_list|drive_search|get_current_time","arguments":{...}}. Em consultas de email, nao adicione filtros extras como is:unread ou in:inbox a menos que o usuario peca. Se o usuario pedir emails de hoje ou das ultimas 24 horas, use queries Gmail de data como newer_than:1d ou after:/before:, nunca from:YYYY-MM-DD.`;
 
-const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta.`;
+const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta. Se a ferramenta falhou ou retornou erro, diga claramente que houve uma falha na consulta, sem inventar que nao havia resultados.`;
 
 type ToolName = 'gmail_search' | 'gmail_send' | 'calendar_list' | 'drive_search' | 'get_current_time';
 

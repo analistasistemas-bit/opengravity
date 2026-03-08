@@ -67,15 +67,17 @@ function nextDate(dateText: string): string {
 }
 
 export function sanitizeGmailQuery(query: string): string {
-    const match = query.match(/\bfrom:(\d{4}-\d{2}-\d{2})\b/);
+    const trimmed = query.trim();
+    const withNormalizedRelativeDate = trimmed.replace(/\bnewer:(\d+[dhmy])\b/g, 'newer_than:$1');
+    const match = withNormalizedRelativeDate.match(/\bfrom:(\d{4}-\d{2}-\d{2})\b/);
     if (!match) {
-        return query.trim();
+        return withNormalizedRelativeDate;
     }
 
     const originalDate = match[1];
     const start = formatDateAsSlash(originalDate);
     const end = nextDate(originalDate);
-    return query.replace(match[0], `after:${start} before:${end}`).trim();
+    return withNormalizedRelativeDate.replace(match[0], `after:${start} before:${end}`).trim();
 }
 
 function normalizeGmailSearchEmail(entry: unknown): GmailSearchEmail | null {
@@ -134,8 +136,13 @@ function runGogCommand(command: string): any {
         const output = execSync(shellCommand, buildGogExecOptions());
         return JSON.parse(output);
     } catch (error: any) {
-        console.error(`❌ Erro ao executar gog: ${error.message}`);
-        return { error: error.stdout || error.message };
+        const details = [
+            error.stderr?.toString?.(),
+            error.stdout?.toString?.(),
+            error.message,
+        ].filter(Boolean).join('\n').trim();
+        console.error(`❌ Erro ao executar gog: ${details}`);
+        throw new Error(details || 'Falha ao executar gog.');
     }
 }
 
@@ -206,7 +213,7 @@ export const googleWorkspaceTools = [
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
         const sanitizedQuery = sanitizeGmailQuery(query);
-        const normalized = normalizeGmailSearchResult(runGogCommand(`gmail search "${sanitizedQuery}" --limit ${limit}`));
+        const normalized = normalizeGmailSearchResult(runGogCommand(`gmail messages search "${sanitizedQuery}" --max ${limit}`));
         const firstEmail = normalized.emails[0];
         console.log(
             `📬 Gmail search summary: query="${sanitizedQuery}", count=${normalized.count}, first="${firstEmail?.from || '-'} | ${firstEmail?.subject || '-'}"`
