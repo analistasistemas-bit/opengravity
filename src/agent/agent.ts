@@ -85,6 +85,27 @@ export function formatToolResultContent(result: unknown): string {
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
 }
 
+export function formatDirectToolResponse(toolName: ToolName, toolResult: unknown): string | null {
+    if (toolName === 'list_skills' && Array.isArray(toolResult)) {
+        const lines = toolResult.map((skill: any) => {
+            const examples = Array.isArray(skill.examples) ? skill.examples.slice(0, 2).join(' | ') : '';
+            return `- ${skill.slug}: ${skill.description}${examples ? `\n  Ex.: ${examples}` : ''}`;
+        });
+        return `Skills disponíveis:\n${lines.join('\n')}`;
+    }
+
+    if (toolName === 'describe_skill' && toolResult && typeof toolResult === 'object' && !Array.isArray(toolResult)) {
+        const skill = toolResult as any;
+        if (skill.error) {
+            return String(skill.error);
+        }
+        const examples = Array.isArray(skill.examples) ? skill.examples.join('\n- ') : '';
+        return `Skill: ${skill.slug}\nDescrição: ${skill.description}\n${examples ? `Exemplos:\n- ${examples}\n` : ''}Guia resumido: ${skill.guidance}`;
+    }
+
+    return null;
+}
+
 export function buildModelMessages(history: ChatMessage[]) {
     return history
         .filter((message) => message.role === 'user' || (message.role === 'assistant' && !message.tool_calls))
@@ -249,6 +270,12 @@ export class Agent {
             content: formatToolResultContent(toolResult),
             name: plan.toolName,
         });
+
+        const directResponse = formatDirectToolResponse(plan.toolName, toolResult);
+        if (directResponse) {
+            await this.memory.addMessage({ user_id: userId, role: 'assistant', content: directResponse });
+            return directResponse;
+        }
 
         const response = await this.generateFinalResponse(history, text, plan.toolName, toolResult);
         await this.memory.addMessage({ user_id: userId, role: 'assistant', content: response });

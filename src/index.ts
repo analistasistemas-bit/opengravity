@@ -91,6 +91,10 @@ bot.on('message:text', async (ctx) => {
         const text = ctx.message.text;
         console.log(`📨 Recebido: "${text}" de ${userId}`);
 
+        if (text.trim().startsWith('/')) {
+            return;
+        }
+
         await ctx.replyWithChatAction('typing');
         console.log(`✍️ Chat action 'typing' enviado.`);
 
