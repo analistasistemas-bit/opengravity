@@ -9,6 +9,8 @@ import { createPerUserSerialExecutor } from './lib/per_user_queue.js';
 import { buildDocumentActionPrompt, getDocumentCapability } from './agent/capability_catalog.js';
 import { DocumentService, parseDocumentActionReply } from './agent/document_service.js';
 import { PendingDocumentJobs } from './lib/pending_document_jobs.js';
+import { SkillCreatorService } from './agent/skill_creator_service.js';
+import { SkillCreatorSessions, isValidSkillSlug, parseSkillCreatorMode } from './agent/skill_creator_session.js';
 
 // Força uso de IPv4 para evitar ETIMEDOUT causado por roteamento IPv6 no macOS
 const httpsAgent = new https.Agent({ family: 4 });
@@ -21,6 +23,8 @@ const bot = new Bot(config.TELEGRAM_BOT_TOKEN, {
 const agent = new Agent();
 const runPerUserSerial = createPerUserSerialExecutor<void>();
 const pendingDocumentJobs = new PendingDocumentJobs();
+const skillCreatorService = new SkillCreatorService();
+const skillCreatorSessions = new SkillCreatorSessions();
 
 // Middleware de Log e Segurança
 bot.use(async (ctx, next) => {
@@ -91,6 +95,126 @@ bot.on('message:text', async (ctx) => {
         console.log(`✍️ Chat action 'typing' enviado.`);
 
         try {
+            if (text.trim() === '/skill-creator') {
+                skillCreatorSessions.set(userId, {
+                    mode: 'create',
+                    step: 'await_mode',
+                    data: {},
+                });
+
+                await ctx.reply('Modo do skill creator? Responda com: `create`, `eval`, `improve` ou `benchmark`.', {
+                    parse_mode: 'Markdown',
+                });
+                return;
+            }
+
+            const skillSession = skillCreatorSessions.get(userId);
+            if (skillSession) {
+                if (skillSession.step === 'await_mode') {
+                    const mode = parseSkillCreatorMode(text);
+                    if (!mode) {
+                        await ctx.reply('Modo inválido. Use `create`, `eval`, `improve` ou `benchmark`.', {
+                            parse_mode: 'Markdown',
+                        });
+                        return;
+                    }
+
+                    skillCreatorSessions.set(userId, {
+                        mode,
+                        step: mode === 'create' ? 'await_name' : 'await_skill_name',
+                        data: {},
+                    });
+
+                    await ctx.reply(
+                        mode === 'create'
+                            ? 'Qual será o nome da skill? Use kebab-case, por exemplo `review-pr-security`.'
+                            : 'Qual é o nome da skill que você quer usar?',
+                        { parse_mode: 'Markdown' },
+                    );
+                    return;
+                }
+
+                if (skillSession.mode === 'create') {
+                    const data = skillSession.data as any;
+
+                    if (skillSession.step === 'await_name') {
+                        if (!isValidSkillSlug(text.trim())) {
+                            await ctx.reply('O nome da skill precisa estar em kebab-case, por exemplo `review-pr-security`.', { parse_mode: 'Markdown' });
+                            return;
+                        }
+
+                        data.name = text.trim();
+                        skillCreatorSessions.set(userId, { ...skillSession, step: 'await_description', data });
+                        await ctx.reply('Descreva em uma frase o que essa skill faz.');
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_description') {
+                        data.description = text.trim();
+                        skillCreatorSessions.set(userId, { ...skillSession, step: 'await_trigger', data });
+                        await ctx.reply('Quando essa skill deve ser acionada?');
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_trigger') {
+                        data.trigger = text.trim();
+                        skillCreatorSessions.set(userId, { ...skillSession, step: 'await_output', data });
+                        await ctx.reply('Qual o formato de saída esperado?');
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_output') {
+                        data.outputFormat = text.trim();
+                        skillCreatorSessions.set(userId, { ...skillSession, step: 'await_evals', data });
+                        await ctx.reply('Deseja criar evals iniciais? Responda `sim` ou `nao`.');
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_evals') {
+                        data.withEvals = /^s/i.test(text.trim());
+                        const result = await skillCreatorService.createSkill(data);
+                        skillCreatorSessions.clear(userId);
+                        await ctx.reply(`Skill criada com sucesso.\nNome: ${result.slug}\nCaminho: ${result.skillPath}\nValidação: ${result.validationOutput}`);
+                        return;
+                    }
+                }
+
+                if (skillSession.mode === 'eval' || skillSession.mode === 'improve' || skillSession.mode === 'benchmark') {
+                    const data = skillSession.data as any;
+
+                    if (skillSession.step === 'await_skill_name') {
+                        data.skillName = text.trim();
+                        skillCreatorSessions.set(userId, { ...skillSession, step: 'await_eval_prompts', data });
+                        await ctx.reply('Envie os prompts de avaliação separados por ` | ` na mesma mensagem.', { parse_mode: 'Markdown' });
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_eval_prompts') {
+                        data.evalPrompts = text.split('|').map((prompt) => prompt.trim()).filter(Boolean);
+                        if (skillSession.mode === 'benchmark') {
+                            skillCreatorSessions.set(userId, { ...skillSession, step: 'await_runs', data });
+                            await ctx.reply('Quantas execuções por prompt?');
+                            return;
+                        }
+
+                        const response = skillSession.mode === 'eval'
+                            ? await skillCreatorService.runEval(data)
+                            : await skillCreatorService.runImprove(data);
+                        skillCreatorSessions.clear(userId);
+                        await ctx.reply(response.slice(0, 3900) || 'Execução concluída sem saída.');
+                        return;
+                    }
+
+                    if (skillSession.step === 'await_runs' && skillSession.mode === 'benchmark') {
+                        data.runs = Number(text.trim()) || 5;
+                        const response = await skillCreatorService.runBenchmark(data);
+                        skillCreatorSessions.clear(userId);
+                        await ctx.reply(response.slice(0, 3900) || 'Benchmark concluído sem saída.');
+                        return;
+                    }
+                }
+            }
+
             const pendingJob = pendingDocumentJobs.get(userId);
             const requestedAction = pendingJob ? parseDocumentActionReply(text) : null;
 
@@ -185,6 +309,20 @@ bot.command('skill', (ctx) => {
     return ctx.reply(
         `Skill: ${skill.slug}\nDescrição: ${skill.description}\nGuia resumido: ${skill.guidance.slice(0, 1200)}`,
     );
+});
+bot.command('skill_creator', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    skillCreatorSessions.set(userId, {
+        mode: 'create',
+        step: 'await_mode',
+        data: {},
+    });
+
+    await ctx.reply('Modo do skill creator? Responda com: `create`, `eval`, `improve` ou `benchmark`.', {
+        parse_mode: 'Markdown',
+    });
 });
 
 // Inicialização
