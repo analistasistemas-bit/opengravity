@@ -1,9 +1,9 @@
-import Groq from 'groq-sdk';
 import { config } from '../config.js';
 import { Memory, ChatMessage } from './memory.js';
 import { toolHandlers } from '../tools/index.js';
 import { SkillRegistry, type SkillDescription } from './skill_registry.js';
 import type { DocumentActionId, DocumentKind } from './capability_catalog.js';
+import { LlmClient, plannerResponseSchema } from './llm_client.js';
 
 export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal. Responda sempre em texto natural. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, primeiro planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado.';
 
@@ -173,12 +173,12 @@ async function executePlannedTool(toolName: ToolName, argumentsRecord: Record<st
 }
 
 export class Agent {
-    private groq: Groq;
+    private llm: LlmClient;
     private memory: Memory;
     private skills: SkillRegistry;
 
     constructor() {
-        this.groq = new Groq({ apiKey: config.GROQ_API_KEY });
+        this.llm = new LlmClient();
         this.memory = new Memory();
         this.skills = new SkillRegistry();
     }
@@ -192,21 +192,14 @@ export class Agent {
         const skillGuidance = this.skills.buildGuidanceBlock(text);
         const plannerMessages = buildPlannerMessages(history, text, PLANNER_PROMPT);
         const [systemMessage, ...conversationMessages] = plannerMessages;
-        const completion = await this.groq.chat.completions.create({
-            model: config.GROQ_MODEL,
-            response_format: { type: 'json_object' },
-            temperature: 0,
-            messages: [
-                systemMessage,
-                ...(skillGuidance ? [{
-                    role: 'system',
-                    content: `Referencias locais disponiveis para esta solicitacao. Use como guia de resposta, sem citar nomes internos de skills:\n${skillGuidance}`,
-                }] : []),
-                ...conversationMessages,
-            ] as any,
-        });
-
-        const content = completion.choices[0].message.content;
+        const content = await this.llm.createStructuredCompletion([
+            systemMessage,
+            ...(skillGuidance ? [{
+                role: 'system',
+                content: `Referencias locais disponiveis para esta solicitacao. Use como guia de resposta, sem citar nomes internos de skills:\n${skillGuidance}`,
+            }] : []),
+            ...conversationMessages,
+        ] as any, plannerResponseSchema);
         const plan = parsePlannerResponse(content);
         if (!plan) {
             throw new Error(`Planner retornou JSON invalido: ${content}`);
@@ -217,25 +210,21 @@ export class Agent {
 
     private async generateFinalResponse(history: ChatMessage[], userText: string, toolName: ToolName, toolResult: unknown): Promise<string> {
         const skillGuidance = this.skills.buildGuidanceBlock(userText);
-        const completion = await this.groq.chat.completions.create({
-            model: config.GROQ_MODEL,
-            temperature: 0,
-            messages: [
-                { role: 'system', content: TOOL_RESULT_PROMPT },
-                ...(skillGuidance ? [{
-                    role: 'system',
-                    content: `Referencias locais disponiveis para esta solicitacao. Use como guia de resposta, sem citar nomes internos de skills:\n${skillGuidance}`,
-                }] : []),
-                ...buildModelMessages(history),
-                { role: 'user', content: userText },
-                {
-                    role: 'assistant',
-                    content: `Ferramenta executada: ${toolName}\nResultado:\n${formatToolResultContent(toolResult)}`,
-                },
-            ] as any,
-        });
+        const content = await this.llm.createTextCompletion([
+            { role: 'system', content: TOOL_RESULT_PROMPT },
+            ...(skillGuidance ? [{
+                role: 'system',
+                content: `Referencias locais disponiveis para esta solicitacao. Use como guia de resposta, sem citar nomes internos de skills:\n${skillGuidance}`,
+            }] : []),
+            ...buildModelMessages(history),
+            { role: 'user', content: userText },
+            {
+                role: 'assistant',
+                content: `Ferramenta executada: ${toolName}\nResultado:\n${formatToolResultContent(toolResult)}`,
+            },
+        ] as any, 0);
 
-        return completion.choices[0].message.content || 'Nao consegui gerar uma resposta.';
+        return content || 'Nao consegui gerar uma resposta.';
     }
 
     async handleMessage(userId: number, text: string): Promise<string> {
@@ -267,22 +256,18 @@ export class Agent {
     }
 
     async summarizeDocumentAction(fileName: string, kind: DocumentKind, action: DocumentActionId, extractedText: string): Promise<string> {
-        const completion = await this.groq.chat.completions.create({
-            model: config.GROQ_MODEL,
-            temperature: 0,
-            messages: [
-                {
-                    role: 'system',
-                    content: 'Voce e o OpenGravity. Resuma documentos de forma objetiva, em portugues. Para PDFs e DOCX, destaque assunto principal, pontos importantes e proximos passos. Para planilhas, destaque abas e principais dados. Para apresentacoes, destaque o tema e os pontos por slide. Nao invente conteudo ausente.',
-                },
-                {
-                    role: 'user',
-                    content: `Arquivo: ${fileName}\nTipo: ${kind}\nAcao: ${action}\nConteudo extraido:\n${extractedText.slice(0, 16000)}`,
-                },
-            ] as any,
-        });
+        const content = await this.llm.createTextCompletion([
+            {
+                role: 'system',
+                content: 'Voce e o OpenGravity. Resuma documentos de forma objetiva, em portugues. Para PDFs e DOCX, destaque assunto principal, pontos importantes e proximos passos. Para planilhas, destaque abas e principais dados. Para apresentacoes, destaque o tema e os pontos por slide. Nao invente conteudo ausente.',
+            },
+            {
+                role: 'user',
+                content: `Arquivo: ${fileName}\nTipo: ${kind}\nAcao: ${action}\nConteudo extraido:\n${extractedText.slice(0, 16000)}`,
+            },
+        ] as any, 0);
 
-        return completion.choices[0].message.content || 'Nao consegui resumir o documento.';
+        return content || 'Nao consegui resumir o documento.';
     }
 
     listAvailableSkills(): SkillDescription[] {

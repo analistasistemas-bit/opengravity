@@ -9,7 +9,7 @@ const envSchema = z.object({
     GROQ_API_KEY: z.string().min(1, "GROQ_API_KEY is required"),
     GROQ_MODEL: z.string().default("llama-3.3-70b-versatile"),
     OPENROUTER_API_KEY: z.string().optional(),
-    OPENROUTER_MODEL: z.string().default("openrouter/free"),
+    OPENROUTER_MODEL: z.string().default("arcee-ai/trinity-large-preview:free"),
     DB_PATH: z.string().default("./data/memory.db"),
     FB_API_KEY: z.string().min(1, "FB_API_KEY is required"),
     FB_AUTH_DOMAIN: z.string().min(1, "FB_AUTH_DOMAIN is required"),
