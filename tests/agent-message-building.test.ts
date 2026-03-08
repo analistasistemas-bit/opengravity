@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     buildModelMessages,
     buildPlannerMessages,
+    inferDeterministicPlan,
     parsePlannerResponse,
     SYSTEM_PROMPT,
 } from '../src/agent/agent.js';
@@ -90,4 +91,24 @@ test('parsePlannerResponse extracts a skill description tool plan', () => {
 test('parsePlannerResponse rejects non-json payloads', () => {
     const parsed = parsePlannerResponse('Oi! Vou verificar novamente!');
     assert.equal(parsed, null);
+});
+
+test('inferDeterministicPlan routes explicit skill listing queries', () => {
+    const plan = inferDeterministicPlan('Quais skills vc tem disponível?');
+
+    assert.deepEqual(plan, {
+        action: 'tool',
+        toolName: 'list_skills',
+        arguments: {},
+    });
+});
+
+test('inferDeterministicPlan routes explicit skill description queries', () => {
+    const plan = inferDeterministicPlan('Me dê exemplos da skill pdf');
+
+    assert.deepEqual(plan, {
+        action: 'tool',
+        toolName: 'describe_skill',
+        arguments: { name: 'pdf' },
+    });
 });

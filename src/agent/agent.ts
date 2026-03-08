@@ -27,6 +27,14 @@ function asString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
+function normalizeIntentText(text: string): string {
+    return text
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .trim()
+        .toLowerCase();
+}
+
 function normalizePlannerArguments(toolName: ToolName, argumentsRecord: Record<string, unknown>): Record<string, unknown> {
     const normalized = { ...argumentsRecord };
 
@@ -42,6 +50,35 @@ function normalizePlannerArguments(toolName: ToolName, argumentsRecord: Record<s
     }
 
     return normalized;
+}
+
+export function inferDeterministicPlan(text: string): PlannerResponse | null {
+    const normalized = normalizeIntentText(text);
+
+    if (
+        /(quais|que|me mostra|listar|lista).*(skills|habilidades)/.test(normalized) ||
+        /(skills|habilidades).*(disponiveis|disponivel|tem|possui|sabe usar)/.test(normalized)
+    ) {
+        return {
+            action: 'tool',
+            toolName: 'list_skills',
+            arguments: {},
+        };
+    }
+
+    const skillMatch = normalized.match(/skill\s+([a-z0-9-]+)/);
+    if (
+        skillMatch &&
+        /(para que serve|o que faz|exemplos|exemplo|como usa|como usar|fale sobre|me diga sobre|descreva)/.test(normalized)
+    ) {
+        return {
+            action: 'tool',
+            toolName: 'describe_skill',
+            arguments: { name: skillMatch[1] },
+        };
+    }
+
+    return null;
 }
 
 export function formatToolResultContent(result: unknown): string {
@@ -147,6 +184,11 @@ export class Agent {
     }
 
     private async createPlan(history: ChatMessage[], text: string): Promise<PlannerResponse> {
+        const deterministicPlan = inferDeterministicPlan(text);
+        if (deterministicPlan) {
+            return deterministicPlan;
+        }
+
         const skillGuidance = this.skills.buildGuidanceBlock(text);
         const plannerMessages = buildPlannerMessages(history, text, PLANNER_PROMPT);
         const [systemMessage, ...conversationMessages] = plannerMessages;
