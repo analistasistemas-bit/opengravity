@@ -1,7 +1,9 @@
 import { googleWorkspaceTools, googleWorkspaceHandlers } from './google_workspace.js';
+import { skillTools, skillHandlers } from './skills.js';
 
 export const tools = [
     ...googleWorkspaceTools,
+    ...skillTools,
     {
         type: 'function',
         function: {
@@ -17,6 +19,7 @@ export const tools = [
 
 export const toolHandlers: Record<string, Function> = {
     ...googleWorkspaceHandlers,
+    ...skillHandlers,
     get_current_time: () => {
         return new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' });
     },

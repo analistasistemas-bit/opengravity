@@ -56,3 +56,20 @@ Read and manipulate spreadsheets.`);
     assert.equal(matches.length, 1);
     assert.equal(matches[0].slug, 'pdf');
 });
+
+test('SkillRegistry describes a skill with examples', () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-registry-'));
+
+    createSkill(rootDir, 'pdf', `---
+name: pdf
+description: Process PDF files
+---
+
+Read and manipulate PDFs.`);
+
+    const registry = new SkillRegistry(rootDir);
+    const description = registry.describeSkill('pdf');
+
+    assert.equal(description?.slug, 'pdf');
+    assert.match(description?.examples[0] || '', /pdf/i);
+});

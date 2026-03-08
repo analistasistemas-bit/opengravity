@@ -288,7 +288,10 @@ bot.command('skills', (ctx) => {
         return ctx.reply('Nenhuma skill local encontrada no ambiente do bot.');
     }
 
-    const lines = skills.map((skill) => `- ${skill.slug}: ${skill.description}`);
+    const lines = skills.map((skill) => {
+        const examples = agent.getSkillByName(skill.slug)?.examples?.slice(0, 2).join(' | ');
+        return `- ${skill.slug}: ${skill.description}${examples ? `\n  Ex.: ${examples}` : ''}`;
+    });
     return ctx.reply(`Skills locais disponíveis:\n${lines.join('\n')}`);
 });
 
@@ -307,7 +310,7 @@ bot.command('skill', (ctx) => {
     }
 
     return ctx.reply(
-        `Skill: ${skill.slug}\nDescrição: ${skill.description}\nGuia resumido: ${skill.guidance.slice(0, 1200)}`,
+        `Skill: ${skill.slug}\nDescrição: ${skill.description}\nExemplos:\n- ${skill.examples.join('\n- ')}\nGuia resumido: ${skill.guidance.slice(0, 1200)}`,
     );
 });
 bot.command('skill_creator', async (ctx) => {

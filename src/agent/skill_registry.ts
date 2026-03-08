@@ -10,6 +10,10 @@ export type LocalSkill = {
     skillPath: string;
 };
 
+export type SkillDescription = LocalSkill & {
+    examples: string[];
+};
+
 const SKILL_ALIASES: Record<string, string[]> = {
     'algorithmic-art': ['arte', 'art', 'generativa', 'canvas', 'visual'],
     'brand-guidelines': ['marca', 'branding', 'brand', 'identidade visual'],
@@ -28,6 +32,77 @@ const SKILL_ALIASES: Record<string, string[]> = {
     'web-artifacts-builder': ['artifact', 'web artifact', 'bundle'],
     'webapp-testing': ['teste', 'playwright', 'webapp', 'browser', 'site'],
     'xlsx': ['xlsx', 'excel', 'planilha', 'spreadsheet'],
+};
+
+const SKILL_EXAMPLES: Record<string, string[]> = {
+    'algorithmic-art': [
+        'crie uma ideia de arte generativa para um poster abstrato',
+        'me dê um workflow para gerar arte algorítmica',
+    ],
+    'brand-guidelines': [
+        'me ajude a definir as regras da minha marca',
+        'como organizar um brand guide simples?',
+    ],
+    'canvas-design': [
+        'me ajude a compor um layout em canvas',
+        'como estruturar uma peça visual em canvas?',
+    ],
+    'claude-api': [
+        'como integrar a Claude API nesse app?',
+        'me dê um exemplo de uso da API da Claude',
+    ],
+    'doc-coauthoring': [
+        'me ajude a coescrever um documento',
+        'como revisar esse texto em colaboração?',
+    ],
+    'docx': [
+        'como extrair texto de um docx?',
+        'me ajude a processar um arquivo word',
+    ],
+    'frontend-design': [
+        'me ajude a desenhar a interface dessa tela',
+        'como estruturar o frontend dessa ideia?',
+    ],
+    'internal-comms': [
+        'escreva um comunicado interno para a equipe',
+        'me ajude com uma mensagem corporativa interna',
+    ],
+    'mcp-builder': [
+        'como criar um servidor MCP?',
+        'me ajude a construir uma integração MCP',
+    ],
+    'pdf': [
+        'como extrair texto de um pdf?',
+        'o que posso fazer com esse arquivo pdf?',
+    ],
+    'pptx': [
+        'como resumir essa apresentação pptx?',
+        'me ajude a analisar os slides desse powerpoint',
+    ],
+    'skill-creator': [
+        'crie uma nova skill para revisar PRs de segurança',
+        'rode evals na minha skill de deploy',
+    ],
+    'slack-gif-creator': [
+        'crie um gif para postar no slack',
+        'como gerar um gif curto para um anúncio interno?',
+    ],
+    'theme-factory': [
+        'me ajude a criar um tema visual para o produto',
+        'como definir um theme consistente para a interface?',
+    ],
+    'web-artifacts-builder': [
+        'gere artefatos web para essa entrega',
+        'como montar os arquivos finais dessa aplicação web?',
+    ],
+    'webapp-testing': [
+        'como testar meu frontend com playwright?',
+        'me ajude a validar esse site automaticamente',
+    ],
+    'xlsx': [
+        'como analisar essa planilha xlsx?',
+        'me ajude a extrair dados desse excel',
+    ],
 };
 
 function parseFrontMatter(raw: string): { metadata: Record<string, string>; body: string } {
@@ -113,6 +188,25 @@ export class SkillRegistry {
         return this.listSkills().find((skill) =>
             skill.slug.toLowerCase() === normalized || skill.name.toLowerCase() === normalized
         ) || null;
+    }
+
+    describeSkill(nameOrSlug: string): SkillDescription | null {
+        const skill = this.getSkill(nameOrSlug);
+        if (!skill) {
+            return null;
+        }
+
+        return {
+            ...skill,
+            examples: SKILL_EXAMPLES[skill.slug] || [
+                `para que serve a skill ${skill.slug}?`,
+                `me dê exemplos de uso da skill ${skill.slug}`,
+            ],
+        };
+    }
+
+    listSkillSummaries() {
+        return this.listSkills().map((skill) => this.describeSkill(skill.slug)!);
     }
 
     findRelevantSkills(query: string, limit: number = 3): LocalSkill[] {

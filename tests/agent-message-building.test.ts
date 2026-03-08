@@ -75,6 +75,18 @@ test('parsePlannerResponse extracts a direct response plan', () => {
     });
 });
 
+test('parsePlannerResponse extracts a skill description tool plan', () => {
+    const parsed = parsePlannerResponse('{"action":"tool","toolName":"describe_skill","arguments":{"name":"pdf"}}');
+
+    assert.deepEqual(parsed, {
+        action: 'tool',
+        toolName: 'describe_skill',
+        arguments: {
+            name: 'pdf',
+        },
+    });
+});
+
 test('parsePlannerResponse rejects non-json payloads', () => {
     const parsed = parsePlannerResponse('Oi! Vou verificar novamente!');
     assert.equal(parsed, null);
