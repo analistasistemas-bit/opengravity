@@ -21,10 +21,14 @@
     "fs-extra": "^11.3.4",
     "grammy": "^1.41.1",
     "groq-sdk": "^0.9.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.11.0",
     "msedge-tts": "^2.0.4",
     "node-fetch": "^2.7.0",
+    "pdf-parse": "^1.1.1",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76"
   },
   "devDependencies": {

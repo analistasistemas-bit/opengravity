@@ -6,6 +6,9 @@ import { Agent } from './agent/agent.js';
 import { AudioService } from './agent/audio_service.js';
 import { TTSService } from './agent/tts_service.js';
 import { createPerUserSerialExecutor } from './lib/per_user_queue.js';
+import { buildDocumentActionPrompt, getDocumentCapability } from './agent/capability_catalog.js';
+import { DocumentService, parseDocumentActionReply } from './agent/document_service.js';
+import { PendingDocumentJobs } from './lib/pending_document_jobs.js';
 
 // Força uso de IPv4 para evitar ETIMEDOUT causado por roteamento IPv6 no macOS
 const httpsAgent = new https.Agent({ family: 4 });
@@ -17,6 +20,7 @@ const bot = new Bot(config.TELEGRAM_BOT_TOKEN, {
 });
 const agent = new Agent();
 const runPerUserSerial = createPerUserSerialExecutor<void>();
+const pendingDocumentJobs = new PendingDocumentJobs();
 
 // Middleware de Log e Segurança
 bot.use(async (ctx, next) => {
@@ -87,6 +91,22 @@ bot.on('message:text', async (ctx) => {
         console.log(`✍️ Chat action 'typing' enviado.`);
 
         try {
+            const pendingJob = pendingDocumentJobs.get(userId);
+            const requestedAction = pendingJob ? parseDocumentActionReply(text) : null;
+
+            if (pendingJob && requestedAction && pendingJob.actions.includes(requestedAction)) {
+                console.log(`📄 Executando ação pendente em documento: ${requestedAction}`);
+                const rawResult = await DocumentService.runAction(pendingJob.filePath, pendingJob.fileName, requestedAction);
+                const response = requestedAction === 'summarize'
+                    ? await agent.summarizeDocumentAction(pendingJob.fileName, pendingJob.kind, requestedAction, rawResult)
+                    : rawResult.slice(0, 3800) || 'Nao encontrei conteudo no documento.';
+
+                await ctx.reply(response);
+                pendingDocumentJobs.clear(userId);
+                await DocumentService.cleanup(pendingJob.filePath);
+                return;
+            }
+
             console.log(`🤖 Chamando agent.handleMessage...`);
             const response = await agent.handleMessage(userId, text);
             console.log(`📤 Resposta gerada: "${response.substring(0, 50)}..."`);
@@ -96,6 +116,41 @@ bot.on('message:text', async (ctx) => {
         } catch (error) {
             console.error("❌ Erro ao processar mensagem:", error);
             await ctx.reply("Desculpe, ocorreu um erro interno ao processar sua mensagem.");
+        }
+    });
+});
+
+bot.on('message:document', async (ctx) => {
+    await runPerUserSerial(String(ctx.from.id), async () => {
+        const userId = ctx.from.id;
+        const document = ctx.message.document;
+        const fileName = document.file_name || 'arquivo';
+        const capability = getDocumentCapability(fileName);
+
+        await ctx.replyWithChatAction('typing');
+
+        if (!capability) {
+            await ctx.reply(`Recebi \`${fileName}\`, mas esse tipo de arquivo ainda nao tem workflow de execução no bot. Posso te orientar sobre como trabalhar com ele.`, {
+                parse_mode: 'Markdown',
+            });
+            return;
+        }
+
+        try {
+            const filePath = await DocumentService.downloadTelegramDocument(bot, document.file_id, fileName);
+            pendingDocumentJobs.set(userId, {
+                fileName,
+                filePath,
+                kind: capability.kind,
+                actions: capability.actions.map((action) => action.id),
+            });
+
+            await ctx.reply(buildDocumentActionPrompt(fileName, capability), {
+                parse_mode: 'Markdown',
+            });
+        } catch (error) {
+            console.error('❌ Erro ao processar documento:', error);
+            await ctx.reply('Nao consegui baixar ou preparar esse documento.');
         }
     });
 });

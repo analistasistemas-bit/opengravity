@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { Memory, ChatMessage } from './memory.js';
 import { toolHandlers } from '../tools/index.js';
 import { SkillRegistry } from './skill_registry.js';
+import type { DocumentActionId, DocumentKind } from './capability_catalog.js';
 
 export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal. Responda sempre em texto natural. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, primeiro planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado.';
 
@@ -221,6 +222,25 @@ export class Agent {
         const response = await this.generateFinalResponse(history, text, plan.toolName, toolResult);
         await this.memory.addMessage({ user_id: userId, role: 'assistant', content: response });
         return response;
+    }
+
+    async summarizeDocumentAction(fileName: string, kind: DocumentKind, action: DocumentActionId, extractedText: string): Promise<string> {
+        const completion = await this.groq.chat.completions.create({
+            model: config.GROQ_MODEL,
+            temperature: 0,
+            messages: [
+                {
+                    role: 'system',
+                    content: 'Voce e o OpenGravity. Resuma documentos de forma objetiva, em portugues. Para PDFs e DOCX, destaque assunto principal, pontos importantes e proximos passos. Para planilhas, destaque abas e principais dados. Para apresentacoes, destaque o tema e os pontos por slide. Nao invente conteudo ausente.',
+                },
+                {
+                    role: 'user',
+                    content: `Arquivo: ${fileName}\nTipo: ${kind}\nAcao: ${action}\nConteudo extraido:\n${extractedText.slice(0, 16000)}`,
+                },
+            ] as any,
+        });
+
+        return completion.choices[0].message.content || 'Nao consegui resumir o documento.';
     }
 
     listAvailableSkills() {
