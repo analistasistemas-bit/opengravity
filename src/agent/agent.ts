@@ -20,6 +20,8 @@ Ferramentas disponiveis:
 - drive_search: buscar arquivos no Google Drive. Args: {query: string, limit?: number}
 - tasks_lists: lista TODAS as listas de tarefas do Google Tasks. Args: {}. Use PRIMEIRO para descobrir o ID da lista.
 - tasks_list: lista tarefas de uma lista especifica do Google Tasks. Args: {tasklistId: string, limit?: number, showCompleted?: boolean}
+- tasks_add: adiciona uma nova tarefa. Args: {tasklistId: string, title: string, due?: string, notes?: string}
+- tasks_delete: exclui uma tarefa. Args: {tasklistId: string, taskId: string}
 - get_current_time: retorna data e hora atual. Args: {}
 - list_skills: lista as skills locais instaladas. Args: {}
 - describe_skill: descreve uma skill especifica. Args: {name: string}

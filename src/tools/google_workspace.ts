@@ -244,6 +244,38 @@ export const googleWorkspaceTools = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'tasks_add',
+            description: 'Adiciona uma nova tarefa em uma lista do Google Tasks.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    tasklistId: { type: 'string', description: 'ID da lista onde adicionar a tarefa (use tasks_lists para obter)' },
+                    title: { type: 'string', description: 'Título da tarefa' },
+                    due: { type: 'string', description: 'Data de vencimento no formato YYYY-MM-DD (opcional)' },
+                    notes: { type: 'string', description: 'Notas ou descrição adicional da tarefa (opcional)' },
+                },
+                required: ['tasklistId', 'title'],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'tasks_delete',
+            description: 'Exclui uma tarefa de uma lista do Google Tasks pelo ID da tarefa.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    tasklistId: { type: 'string', description: 'ID da lista de tarefas' },
+                    taskId: { type: 'string', description: 'ID da tarefa a ser excluída (obtenha via tasks_list)' },
+                },
+                required: ['tasklistId', 'taskId'],
+            },
+        },
+    },
 ];
 
 
@@ -295,5 +327,18 @@ export const googleWorkspaceHandlers = {
         const pending = tasks.filter((t) => t.status !== 'completed');
         console.log(`✅ Tasks list summary: listId="${tasklistId}", total=${tasks.length}, pending=${pending.length}`);
         return { count: tasks.length, pending: pending.length, tasks };
+    },
+    tasks_add: async ({ tasklistId, title, due, notes }: { tasklistId: string, title: string, due?: string, notes?: string }) => {
+        let cmd = `tasks add "${tasklistId}" --title "${title}"`;
+        if (due) cmd += ` --due "${due}"`;
+        if (notes) cmd += ` --notes "${notes}"`;
+        const result = runGogCommand(cmd);
+        console.log(`✅ Task added: listId="${tasklistId}", title="${title}"`);
+        return result;
+    },
+    tasks_delete: async ({ tasklistId, taskId }: { tasklistId: string, taskId: string }) => {
+        const result = runGogCommand(`tasks delete "${tasklistId}" "${taskId}"`);
+        console.log(`✅ Task deleted: listId="${tasklistId}", taskId="${taskId}"`);
+        return { success: true, message: `Tarefa ${taskId} excluída com sucesso da lista ${tasklistId}` };
     },
 };
