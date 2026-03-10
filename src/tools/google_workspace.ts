@@ -68,6 +68,12 @@ function nextDate(dateText: string): string {
 
 export function sanitizeGmailQuery(query: string): string {
     const trimmed = query.trim();
+
+    // Fallback defensivo: query vazia retorna inbox recente para não quebrar o gog CLI
+    if (!trimmed) {
+        return 'in:inbox newer_than:7d';
+    }
+
     const withNormalizedRelativeDate = trimmed.replace(/\bnewer:(\d+[dhmy])\b/g, 'newer_than:$1');
     const match = withNormalizedRelativeDate.match(/\bfrom:(\d{4}-\d{2}-\d{2})\b/);
     if (!match) {
@@ -114,7 +120,7 @@ export function normalizeGmailSearchResult(rawResult: unknown) {
                     ? rootRecord.messages
                     : Array.isArray(rootRecord?.items)
                         ? rootRecord.items
-                    : [];
+                        : [];
 
     const emails = rawItems
         .map(normalizeGmailSearchEmail)
@@ -212,7 +218,9 @@ export const googleWorkspaceTools = [
 
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
-        const sanitizedQuery = sanitizeGmailQuery(query);
+        // Fallback: se o planner gerar query vazia, usa inbox recente
+        const safeQuery = query?.trim() || 'in:inbox newer_than:7d';
+        const sanitizedQuery = sanitizeGmailQuery(safeQuery);
         const normalized = normalizeGmailSearchResult(runGogCommand(`gmail messages search "${sanitizedQuery}" --max ${limit}`));
         const firstEmail = normalized.emails[0];
         console.log(

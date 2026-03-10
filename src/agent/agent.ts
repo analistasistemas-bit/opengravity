@@ -23,7 +23,7 @@ Ferramentas disponiveis:
 - describe_skill: descreve uma skill especifica. Args: {name: string}
 
 Regras importantes:
-1. Em consultas de email, nao adicione filtros como is:unread a menos que o usuario peca.
+1. Em gmail_search, a query NUNCA pode ser vazia. Se o usuario nao especificar filtro, use "in:inbox newer_than:7d". Nao adicione filtros como is:unread a menos que o usuario peca.
 2. Para emails de hoje ou ultimas 24h, use newer_than:1d.
 3. Se o usuario perguntar sobre skills, use list_skills ou describe_skill - nunca responda de memoria.
 4. Se o usuario mencionar PDF, Word, Excel, PowerPoint ou pedir para analisar um arquivo, oriente-o a ENVIAR O ARQUIVO diretamente no chat - o bot processara automaticamente.
