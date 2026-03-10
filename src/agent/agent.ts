@@ -18,6 +18,8 @@ Ferramentas disponiveis:
 - gmail_send: enviar email. Args: {to: string, subject: string, body: string}
 - calendar_list: listar eventos do Google Calendar. Args: {maxResults?: number}
 - drive_search: buscar arquivos no Google Drive. Args: {query: string, limit?: number}
+- tasks_lists: lista TODAS as listas de tarefas do Google Tasks. Args: {}. Use PRIMEIRO para descobrir o ID da lista.
+- tasks_list: lista tarefas de uma lista especifica do Google Tasks. Args: {tasklistId: string, limit?: number, showCompleted?: boolean}
 - get_current_time: retorna data e hora atual. Args: {}
 - list_skills: lista as skills locais instaladas. Args: {}
 - describe_skill: descreve uma skill especifica. Args: {name: string}
@@ -25,10 +27,11 @@ Ferramentas disponiveis:
 Regras importantes:
 1. Em gmail_search, a query NUNCA pode ser vazia. Se o usuario nao especificar filtro, use "in:inbox newer_than:7d". Nao adicione filtros como is:unread a menos que o usuario peca.
 2. Para emails de hoje ou ultimas 24h, use newer_than:1d.
-3. Se o usuario perguntar sobre skills, use list_skills ou describe_skill - nunca responda de memoria.
-4. Se o usuario mencionar PDF, Word, Excel, PowerPoint ou pedir para analisar um arquivo, oriente-o a ENVIAR O ARQUIVO diretamente no chat - o bot processara automaticamente.
-5. Se tiver um bloco de referencias de skill local no contexto, USE o conteudo desse guia para construir sua resposta respond.
-6. NUNCA reutilize resultados de ferramentas de mensagens anteriores para responder uma nova pergunta sobre topico diferente.`;
+3. Para consultar tarefas do Google Tasks: SEMPRE chame tasks_lists primeiro para obter o ID da lista, depois tasks_list com esse ID.
+4. Se o usuario perguntar sobre skills, use list_skills ou describe_skill - nunca responda de memoria.
+5. Se o usuario mencionar PDF, Word, Excel, PowerPoint ou pedir para analisar um arquivo, oriente-o a ENVIAR O ARQUIVO diretamente no chat - o bot processara automaticamente.
+6. Se tiver um bloco de referencias de skill local no contexto, USE o conteudo desse guia para construir sua resposta respond.
+7. NUNCA reutilize resultados de ferramentas de mensagens anteriores para responder uma nova pergunta sobre topico diferente.`;
 
 const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util em portugues. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta. Se a ferramenta falhou ou retornou erro, diga claramente que houve uma falha na consulta, sem inventar dados. Foque APENAS nesta consulta especifica, ignorando resultados de consultas anteriores na conversa.`;
 

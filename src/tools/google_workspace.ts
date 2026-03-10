@@ -214,7 +214,38 @@ export const googleWorkspaceTools = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'tasks_lists',
+            description: 'Lista todas as listas de tarefas do Google Tasks do usuário.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    limit: { type: 'number', description: 'Número máximo de listas (padrão 20)' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'tasks_list',
+            description: 'Lista as tarefas pendentes de uma lista do Google Tasks. Use tasks_lists primeiro para descobrir o ID da lista.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    tasklistId: { type: 'string', description: 'ID da lista de tarefas (obtenha via tasks_lists)' },
+                    limit: { type: 'number', description: 'Número máximo de tarefas (padrão 20)' },
+                    showCompleted: { type: 'boolean', description: 'Incluir tarefas concluídas (padrão false)' },
+                },
+                required: ['tasklistId'],
+            },
+        },
+    },
 ];
+
 
 export const googleWorkspaceHandlers = {
     gmail_search: async ({ query, limit = 5 }: { query: string, limit?: number }) => {
@@ -236,5 +267,33 @@ export const googleWorkspaceHandlers = {
     },
     drive_search: async ({ query }: { query: string }) => {
         return runGogCommand(`drive search "${query}"`);
+    },
+    tasks_lists: async ({ limit = 20 }: { limit?: number }) => {
+        const result = runGogCommand(`tasks lists --max ${limit}`);
+        const items: any[] = Array.isArray(result) ? result
+            : Array.isArray(result?.items) ? result.items
+                : Array.isArray(result?.taskLists) ? result.taskLists
+                    : [];
+        return {
+            count: items.length,
+            lists: items.map((l: any) => ({ id: l.id, title: l.title || l.name || '(sem título)' })),
+        };
+    },
+    tasks_list: async ({ tasklistId, limit = 20, showCompleted = false }: { tasklistId: string, limit?: number, showCompleted?: boolean }) => {
+        const flags = showCompleted ? '' : ' --showCompleted false';
+        const result = runGogCommand(`tasks list "${tasklistId}" --max ${limit}${flags}`);
+        const items: any[] = Array.isArray(result) ? result
+            : Array.isArray(result?.items) ? result.items
+                : [];
+        const tasks = items.map((t: any) => ({
+            id: t.id,
+            title: t.title || t.name || '(sem título)',
+            status: t.status || 'needsAction',
+            due: t.due || null,
+            notes: t.notes || null,
+        }));
+        const pending = tasks.filter((t) => t.status !== 'completed');
+        console.log(`✅ Tasks list summary: listId="${tasklistId}", total=${tasks.length}, pending=${pending.length}`);
+        return { count: tasks.length, pending: pending.length, tasks };
     },
 };
