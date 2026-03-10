@@ -109,7 +109,7 @@ export class DocumentService {
             }
             case 'xlsx': {
                 const workbook = XLSX.readFile(filePath);
-                return workbook.SheetNames.map((sheetName) => {
+                return workbook.SheetNames.map((sheetName: string) => {
                     const worksheet = workbook.Sheets[sheetName];
                     const csv = XLSX.utils.sheet_to_csv(worksheet);
                     return `Aba: ${sheetName}\n${csv}`.trim();
