@@ -37,7 +37,11 @@ export const plannerResponseSchema: JsonSchemaResponseFormat = {
                 response: { type: 'string' },
                 toolName: {
                     type: 'string',
-                    enum: ['gmail_search', 'gmail_send', 'calendar_list', 'drive_search', 'get_current_time', 'list_skills', 'describe_skill'],
+                    enum: [
+                        'gmail_search', 'gmail_send', 'calendar_list', 'drive_search',
+                        'tasks_lists', 'tasks_list', 'tasks_add', 'tasks_delete',
+                        'get_current_time', 'list_skills', 'describe_skill'
+                    ],
                 },
                 arguments: {
                     type: 'object',
