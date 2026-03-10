@@ -1,0 +1,45 @@
+{
+    "mcpServers": {
+        "supabase-mcp-server": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@supabase/mcp-server-supabase@latest",
+                "--access-token",
+                "sbp_a0ea06eae571657cf2724cbc5642f58c94a5e2dd"
+            ],
+            "env": {}
+        },
+        "render": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "mcp-remote",
+                "https://mcp.render.com/mcp",
+                "--header",
+                "Authorization: Bearer Srnd_6ZgCXfLFJxoxzTt3s24QteDTWuZf"
+            ]
+        },
+        "upstash": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@upstash/mcp-server@latest"
+            ],
+            "env": {
+                "UPSTASH_EMAIL": "analistasistemas@gmail.com",
+                "UPSTASH_API_KEY": "438a6f1f-da09-4521-a56e-e110c0c5a2e4"
+            }
+        },
+        "firebase-mcp-server": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "firebase-tools@latest",
+                "mcp"
+            ],
+            "env": {},
+            "disabled": false
+        }
+    }
+}

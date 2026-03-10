@@ -288,15 +288,19 @@ bot.command('start', (ctx) => ctx.reply('Olá! Eu sou o OpenGravity, seu agente 
 bot.command('id', (ctx) => ctx.reply(`Seu ID do Telegram é: ${ctx.from?.id}`));
 bot.command('skills', (ctx) => {
     const skills = agent.listAvailableSkills();
+    const skillsDir = process.env.BOT_SKILLS_DIR || './skills';
     if (skills.length === 0) {
-        return ctx.reply('Nenhuma skill local encontrada no ambiente do bot.');
+        return ctx.reply(
+            `Nenhuma skill encontrada.\n\nDiretórios pesquisados:\n- ${skillsDir}\n- ~/.codex/skills\n- ~/.config/claude/skills\n\nCrie a pasta \`skills/\` na raiz do projeto e adicione skills com um arquivo \`SKILL.md\` dentro.`,
+            { parse_mode: 'Markdown' }
+        );
     }
 
     const lines = skills.map((skill) => {
         const examples = agent.getSkillByName(skill.slug)?.examples?.slice(0, 2).join(' | ');
         return `- ${skill.slug}: ${skill.description}${examples ? `\n  Ex.: ${examples}` : ''}`;
     });
-    return ctx.reply(`Skills locais disponíveis:\n${lines.join('\n')}`);
+    return ctx.reply(`Skills locais disponíveis (${skills.length}):\n${lines.join('\n')}`);
 });
 
 bot.command('skill', (ctx) => {
@@ -330,6 +334,24 @@ bot.command('skill_creator', async (ctx) => {
     await ctx.reply('Modo do skill creator? Responda com: `create`, `eval`, `improve` ou `benchmark`.', {
         parse_mode: 'Markdown',
     });
+});
+
+bot.command('clear', async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    try {
+        await ctx.replyWithChatAction('typing');
+        const deleted = await agent.clearMemory(userId);
+        await ctx.reply(
+            deleted > 0
+                ? `🗑️ Contexto limpo! Apaguei ${deleted} mensagens do histórico. Podemos começar uma nova conversa!`
+                : '✅ Seu histórico já estava vazio.',
+        );
+    } catch (error) {
+        console.error('❌ Erro ao limpar histórico:', error);
+        await ctx.reply('Ocorreu um erro ao tentar limpar o histórico.');
+    }
 });
 
 // Inicialização

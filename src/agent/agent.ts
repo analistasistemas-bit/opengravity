@@ -5,11 +5,35 @@ import { SkillRegistry, type SkillDescription } from './skill_registry.js';
 import type { DocumentActionId, DocumentKind } from './capability_catalog.js';
 import { LlmClient, plannerResponseSchema } from './llm_client.js';
 
-export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal. Responda sempre em texto natural. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, primeiro planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado.';
+export const SYSTEM_PROMPT = 'Voce e o OpenGravity, um assistente pessoal inteligente. Responda sempre em texto natural, em portugues do Brasil. Se precisar consultar Gmail, Google Calendar, Google Drive ou horario atual, planeje a acao em JSON estrito. Nao escreva chamadas de ferramenta em texto, pseudo-XML ou JSON decorado fora do formato solicitado. Cada mensagem deve ser tratada de forma independente do contexto de ferramentas anteriores.';
 
-const PLANNER_PROMPT = `${SYSTEM_PROMPT} Sua primeira tarefa e escolher a acao do backend. Responda somente JSON valido em um destes formatos: {"action":"respond","response":"..."} ou {"action":"tool","toolName":"gmail_search|gmail_send|calendar_list|drive_search|get_current_time|list_skills|describe_skill","arguments":{...}}. Em consultas de email, nao adicione filtros extras como is:unread ou in:inbox a menos que o usuario peca. Se o usuario pedir emails de hoje ou das ultimas 24 horas, use queries Gmail de data como newer_than:1d ou after:/before:, nunca from:YYYY-MM-DD. Se o usuario perguntar sobre skills disponíveis, para que servem ou pedir exemplos de uso, use list_skills ou describe_skill em vez de responder de memória.`;
+const PLANNER_PROMPT = `${SYSTEM_PROMPT}
 
-const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta. Se a ferramenta falhou ou retornou erro, diga claramente que houve uma falha na consulta, sem inventar que nao havia resultados.`;
+Sua primeira tarefa e escolher a acao correta. Responda SOMENTE JSON valido em um destes formatos:
+- {"action":"respond","response":"..."} para resposta direta
+- {"action":"tool","toolName":"NOME","arguments":{...}} para executar uma ferramenta
+
+Ferramentas disponiveis:
+- gmail_search: buscar emails no Gmail. Args: {query: string, limit?: number}
+- gmail_send: enviar email. Args: {to: string, subject: string, body: string}
+- calendar_list: listar eventos do Google Calendar. Args: {maxResults?: number}
+- drive_search: buscar arquivos no Google Drive. Args: {query: string, limit?: number}
+- get_current_time: retorna data e hora atual. Args: {}
+- list_skills: lista as skills locais instaladas. Args: {}
+- describe_skill: descreve uma skill especifica. Args: {name: string}
+
+Regras importantes:
+1. Em consultas de email, nao adicione filtros como is:unread a menos que o usuario peca.
+2. Para emails de hoje ou ultimas 24h, use newer_than:1d.
+3. Se o usuario perguntar sobre skills, use list_skills ou describe_skill - nunca responda de memoria.
+4. Se o usuario mencionar PDF, Word, Excel, PowerPoint ou pedir para analisar um arquivo, oriente-o a ENVIAR O ARQUIVO diretamente no chat - o bot processara automaticamente.
+5. Se tiver um bloco de referencias de skill local no contexto, USE o conteudo desse guia para construir sua resposta respond.
+6. NUNCA reutilize resultados de ferramentas de mensagens anteriores para responder uma nova pergunta sobre topico diferente.`;
+
+const TOOL_RESULT_PROMPT = `${SYSTEM_PROMPT} Voce recebeu o resultado bruto de uma ferramenta ja executada. Resuma isso para o usuario de forma objetiva e util em portugues. Em Gmail, liste remetente e assunto. Se nao houver resultados, diga isso de forma direta. Se a ferramenta falhou ou retornou erro, diga claramente que houve uma falha na consulta, sem inventar dados. Foque APENAS nesta consulta especifica, ignorando resultados de consultas anteriores na conversa.`;
+
+/** Marcador interno: respostas do assistente geradas por sumarização de ferramenta. */
+const TOOL_SUMMARY_MARKER = '__tool_summary__';
 
 type ToolName = 'gmail_search' | 'gmail_send' | 'calendar_list' | 'drive_search' | 'get_current_time' | 'list_skills' | 'describe_skill';
 
@@ -106,9 +130,27 @@ export function formatDirectToolResponse(toolName: ToolName, toolResult: unknown
     return null;
 }
 
+/**
+ * Constrói o histórico conversacional para enviar ao modelo.
+ * EXCLUI:
+ *  - mensagens role:'tool' (resultados brutos de ferramentas)
+ *  - mensagens role:'assistant' com tool_calls (chamadas de ferramenta intermediárias)
+ *  - mensagens role:'assistant' marcadas como '__tool_summary__' (sumários gerados por ferramentas)
+ *    para evitar que o contexto de uma ferramenta anterior contamine a próxima pergunta.
+ */
 export function buildModelMessages(history: ChatMessage[]) {
     return history
-        .filter((message) => message.role === 'user' || (message.role === 'assistant' && !message.tool_calls))
+        .filter((message) => {
+            if (message.role === 'user') return true;
+            if (message.role === 'assistant') {
+                // Exclui chamadas de ferramenta intermediárias
+                if (message.tool_calls) return false;
+                // Exclui respostas geradas como sumário de ferramenta (evita context bleeding)
+                if (message.name === TOOL_SUMMARY_MARKER) return false;
+                return true;
+            }
+            return false;
+        })
         .map((message) => ({
             role: message.role,
             content: message.content,
@@ -131,7 +173,8 @@ export function buildPlannerMessages(
     systemPrompt: string = SYSTEM_PROMPT,
 ) {
     const conversation = buildModelMessages(history);
-    const recentConversation = conversation.slice(-6);
+    // Janela de 4 mensagens (2 trocas) para reduzir contaminação de contexto antigo
+    const recentConversation = conversation.slice(-4);
 
     if (isStandaloneGreeting(latestText)) {
         return [
@@ -273,12 +316,24 @@ export class Agent {
 
         const directResponse = formatDirectToolResponse(plan.toolName, toolResult);
         if (directResponse) {
-            await this.memory.addMessage({ user_id: userId, role: 'assistant', content: directResponse });
+            // Marcamos como tool_summary para não contaminar o contexto do planner
+            await this.memory.addMessage({
+                user_id: userId,
+                role: 'assistant',
+                content: directResponse,
+                name: TOOL_SUMMARY_MARKER,
+            });
             return directResponse;
         }
 
         const response = await this.generateFinalResponse(history, text, plan.toolName, toolResult);
-        await this.memory.addMessage({ user_id: userId, role: 'assistant', content: response });
+        // Marcamos como tool_summary para não contaminar o contexto do planner
+        await this.memory.addMessage({
+            user_id: userId,
+            role: 'assistant',
+            content: response,
+            name: TOOL_SUMMARY_MARKER,
+        });
         return response;
     }
 
@@ -303,5 +358,10 @@ export class Agent {
 
     getSkillByName(nameOrSlug: string): SkillDescription | null {
         return this.skills.describeSkill(nameOrSlug);
+    }
+
+    /** Apaga o histórico de memória do usuário. Retorna a quantidade de mensagens deletadas. */
+    async clearMemory(userId: number): Promise<number> {
+        return this.memory.clearHistory(userId);
     }
 }

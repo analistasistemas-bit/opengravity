@@ -150,37 +150,79 @@ function tokenize(text: string): string[] {
         .filter((token) => token.length >= 2);
 }
 
+/**
+ * Retorna os diretórios de skills em ordem de prioridade.
+ * Prioridade: BOT_SKILLS_DIR > ./skills > ~/.codex/skills > ~/.config/claude/skills > ~/.gemini/antigravity/skills
+ */
+function resolveSkillDirectories(): string[] {
+    // 1. Variável de ambiente explícita (máxima prioridade)
+    if (process.env.BOT_SKILLS_DIR?.trim()) {
+        return [process.env.BOT_SKILLS_DIR.trim()];
+    }
+
+    const candidates = [
+        // 2. Diretório local do projeto (relativo ao processo)
+        path.resolve(process.cwd(), 'skills'),
+        // 3. ~/.codex/skills (compatibilidade com instalações Superpowers/Claude Code)
+        path.join(os.homedir(), '.codex', 'skills'),
+        // 4. ~/.config/claude/skills
+        path.join(os.homedir(), '.config', 'claude', 'skills'),
+        // 5. ~/.gemini/antigravity/skills
+        path.join(os.homedir(), '.gemini', 'antigravity', 'skills'),
+    ];
+
+    return candidates.filter((dir) => fs.existsSync(dir));
+}
+
 export class SkillRegistry {
-    constructor(
-        private readonly rootDir: string = process.env.BOT_SKILLS_DIR || path.join(os.homedir(), '.codex/skills'),
-    ) {}
+    private readonly skillDirs: string[];
 
-    listSkills(): LocalSkill[] {
-        if (!fs.existsSync(this.rootDir)) {
-            return [];
+    constructor(rootDir?: string) {
+        if (rootDir) {
+            this.skillDirs = [rootDir];
+        } else {
+            this.skillDirs = resolveSkillDirectories();
+            if (this.skillDirs.length === 0) {
+                console.warn('⚠️ SkillRegistry: Nenhum diretório de skills encontrado. Crie ./skills/ ou configure BOT_SKILLS_DIR no .env');
+            } else {
+                console.log(`📚 SkillRegistry: Skills carregadas de: ${this.skillDirs.join(', ')}`);
+            }
         }
+    }
 
-        return fs.readdirSync(this.rootDir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-            .map((entry) => {
-                const skillPath = path.join(this.rootDir, entry.name);
+    /** Retorna todos os slugs únicos encontrados em todos os diretórios de skills. */
+    listSkills(): LocalSkill[] {
+        const seen = new Set<string>();
+        const results: LocalSkill[] = [];
+
+        for (const dir of this.skillDirs) {
+            if (!fs.existsSync(dir)) continue;
+
+            const entries = fs.readdirSync(dir, { withFileTypes: true })
+                .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !seen.has(entry.name));
+
+            for (const entry of entries) {
+                seen.add(entry.name);
+
+                const skillPath = path.join(dir, entry.name);
                 const skillFile = path.join(skillPath, 'SKILL.md');
                 if (!fs.existsSync(skillFile)) {
-                    return null;
+                    continue;
                 }
 
                 const raw = fs.readFileSync(skillFile, 'utf-8');
                 const { metadata, body } = parseFrontMatter(raw);
-                return {
+                results.push({
                     slug: entry.name,
                     name: metadata.name || entry.name,
                     description: metadata.description || 'Sem descricao.',
                     guidance: compactBody(body),
                     skillPath,
-                } satisfies LocalSkill;
-            })
-            .filter((skill): skill is LocalSkill => skill !== null)
-            .sort((a, b) => a.slug.localeCompare(b.slug));
+                });
+            }
+        }
+
+        return results.sort((a, b) => a.slug.localeCompare(b.slug));
     }
 
     getSkill(nameOrSlug: string): LocalSkill | null {

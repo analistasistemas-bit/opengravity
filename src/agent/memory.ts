@@ -118,4 +118,30 @@ export class Memory {
     }
     return null;
   }
+
+  /** Apaga todo o histórico de mensagens de um usuário (reset de contexto). */
+  async clearHistory(userId: number): Promise<number> {
+    if (!this.db) await this.init();
+    if (!this.db) throw new Error("Firestore não inicializado");
+
+    const userMsgsRef = this.db.collection('users').doc(userId.toString()).collection('messages');
+    const snapshot = await userMsgsRef.get();
+
+    if (snapshot.empty) return 0;
+
+    // Firestore limita deletes em batch a 500 documentos por operação
+    const BATCH_SIZE = 400;
+    let deleted = 0;
+
+    const docs = snapshot.docs;
+    for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+      const batch = this.db.batch();
+      docs.slice(i, i + BATCH_SIZE).forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+      deleted += Math.min(BATCH_SIZE, docs.length - i);
+    }
+
+    console.log(`🗑️ Memory: Histórico de ${userId} limpo (${deleted} mensagens deletadas).`);
+    return deleted;
+  }
 }
